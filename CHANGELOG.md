@@ -4,6 +4,8 @@
 
 First public version.
 
+- Panel key `n`: write a request in plain words, the card is created and the pipeline starts (or picks it up if already running).
+
 - Several builders on one card (`builders`): tasks declare `[files: ...]`, groups with disjoint files are built at the same time in throw-away worktrees and merged; any doubt falls back to one builder.
 
 - Several cards at once (`parallel`, `run -j N`): one git worktree per card, serialized merges and retros, base re-merged and CI re-run when another card landed first, `depends:` in cards, optional `setup` command per worktree.

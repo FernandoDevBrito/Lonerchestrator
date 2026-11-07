@@ -3,7 +3,6 @@ import argparse
 import json
 import os
 import platform
-import re
 import shutil
 import sys
 import time
@@ -12,7 +11,7 @@ from pathlib import Path
 from . import __version__, aisetup, checks, config, term, trust
 from . import answer as answers
 from .agents import Runner
-from .board import AREAS, Board
+from .board import AREAS, Board, create_card
 from .events import Log
 from .gitops import Git
 from .intro import configured, run_intro
@@ -63,15 +62,7 @@ def cmd_intro(a, project):
 
 
 def cmd_new(a, project):
-    board = Board(project)
-    nums = [int(m.group(1)) for s in ("backlog", "doing", "review", "done", "blocked") for c in board.cards(s)
-            if (m := re.match(r"(\d+)-", c.id))]
-    slug = re.sub(r"[^a-z0-9]+", "-", a.title.lower()).strip("-")[:40]
-    dest = board.root / "backlog" / f"{max(nums, default=0) + 1:03d}-{slug}.md"
-    t = (project / "board" / "_TEMPLATE.md").read_text(encoding="utf-8")
-    t = t.replace("title: <short title>", f"title: {a.title}").replace("area: backend ", f"area: {a.area} ").replace("# <short title>", f"# {a.title}")
-    dest.write_text(t, encoding="utf-8")
-    print(dest)
+    print(create_card(project, a.title, a.area))
     return 0
 
 

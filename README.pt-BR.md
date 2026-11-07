@@ -94,7 +94,7 @@ lonerchestrator init         # instala board, agentes, guardrails, context/ e fa
 
 1. **Introdução** (`init` ou `lonerchestrator intro`): detecta em quais IAs você está logado, deixa escolher o modelo de cada papel, os dois revisores e qual agente cuida de cada área.
 2. Preencha `context/project.md` (stack, como rodar testes, convenções) e ajuste `scripts/ci.sh` para o seu projeto.
-3. Crie um card: `lonerchestrator new "Adicionar login"`, abra o arquivo em `board/backlog/` e preencha objetivo e critérios **testáveis**.
+3. Abra o painel e aperte `n`: escreva em palavras simples o que quer mudar, aperte `Enter`, e o card é criado e o pipeline começa a trabalhar nele (um pedido vago vira perguntas para você, não chute). `Tab` nessa caixa escolhe o agente (backend, frontend, both). Prefere escrever o card você mesmo? `lonerchestrator new "Adicionar login"`, e edite em `board/backlog/` com objetivo e critérios **testáveis**.
 4. Abra o painel: `lonerchestrator`, e aperte `r`.
 
 ## O painel

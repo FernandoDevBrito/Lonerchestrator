@@ -147,3 +147,30 @@ def test_ais_tab_keys_toggle_cycle_and_refresh(project, monkeypatch):
     key("5")
     assert ui.screen == 4
     assert len(lines(project, 4, ui=ui)) == tui.H
+
+
+def test_new_request_box_creates_a_card_and_starts_the_run(project):
+    from orch.board import Board
+
+    class R:
+        started = 0
+        start = lambda self: setattr(self, "started", self.started + 1)  # noqa: E731
+
+    ui, r = tui.UI(), R()
+    x = tui.Ctx(project, ui)
+    tui.handle("n", ui, x, r)
+    assert ui.mode == "new"
+    out = tui.frame(tui.Ctx(project, ui))
+    assert len(out) == tui.H and all(tui.vlen(ln) == tui.W for ln in out) and "New request" in "\n".join(out)
+    for ch in "Add a logout button. It must clear the session":                   # q and digits are text here
+        tui.handle(ch, ui, x, r)
+    tui.handle("\t", ui, x, r)
+    assert ui.area == "frontend"
+    tui.handle("\r", ui, x, r)
+    assert ui.mode is None and r.started == 1
+    [card] = Board(project).cards("backlog")
+    assert card.title == "Add a logout button" and card.area == "frontend"
+    assert "It must clear the session" in card.section("Goal") and card.problems() == []      # a valid card the planner can work on
+    tui.handle("n", ui, x, r)
+    tui.handle("\x1b", ui, x, r)
+    assert ui.mode is None and len(Board(project).cards("backlog")) == 1                      # Esc creates nothing

@@ -98,7 +98,7 @@ lonerchestrator init       # installs board, agents, guardrails, context/ and ru
 
 1. **Introduction** (`init`, or `lonerchestrator intro` any time): detects which AIs you are logged in to and lets you choose the model for each role, the two reviewers, and which agent handles each area.
 2. Fill in `context/project.md` (stack, how to run tests, conventions) and adapt `scripts/ci.sh` to your project.
-3. `lonerchestrator new "Add login"`, then open the card in `board/backlog/` and write a goal and **testable** acceptance criteria.
+3. Open the panel and press `n`: write what you want changed in plain words, press `Enter`, and the card is created and the pipeline starts working on it (a vague request becomes questions for you, not guesses). `Tab` in that box picks the agent (backend, frontend, both). Prefer writing the card yourself? `lonerchestrator new "Add login"`, then edit it in `board/backlog/` with a goal and **testable** acceptance criteria.
 4. `lonerchestrator` opens the panel. Press `r` to run.
 
 ## The panel
@@ -114,7 +114,7 @@ Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** wit
 | **5 AIs** | A checklist of the AIs/models you allow, who does what, and your **live usage** (see below) |
 | **6 Settings** | Your project's options and a **"Ready to run?"** check that tells you what is still missing and how to fix it |
 
-Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `a` answer a blocked card · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
+Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new request** · `a` answer a blocked card · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
 
 ### The Settings tab: configure without editing JSON
 

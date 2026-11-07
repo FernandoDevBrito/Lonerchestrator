@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from . import answer, checks, config, menu, settings, term, usage
-from .board import Board, Card
+from .board import Board, Card, create_card
 from .safe import clean, keep_sgr
 from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
 
@@ -99,6 +99,7 @@ class UI:
         self.scur, self.edit_key, self.checks, self.checks_t = 0, "", [], 0.0      # Settings tab: cursor, field being edited, cached readiness
         self.mode, self.qcard, self.qs, self.ans, self.buf = None, "", [], [], ""      # answering a blocked card's questions
         self.qopts = []                                                                  # the suggested answers of each question
+        self.area = "backend"                                                            # the "new request" box: which agent builds it
         self.suggesting = False                                                          # fetching suggestions for questions that came without
 
 
@@ -400,6 +401,47 @@ def answer_key(key, ui, x):
         ui.buf += key
 
 
+REQUEST_AREAS = ("backend", "frontend", "both")
+
+
+def request_title(text):
+    first = re.split(r"(?<=[.!?])\s|\n", text.strip(), maxsplit=1)[0]
+    return first[:60].rstrip(" .,;:") or "request"
+
+
+def screen_new(x):
+    ui, w = x.ui, 100
+    L = [" " + rule(w, "New request: say what you want changed", "faint", "accent"), "",
+         paint("dim", " Write it in plain words. When you press Enter the card is created and the pipeline starts working on it."),
+         paint("dim", " A vague request is fine: the planner will ask you questions instead of guessing."), ""]
+    typed = wrap(ui.buf + "\u258c", w - 4)
+    L += [(paint("info", " \u203a ") if i == 0 else "   ") + ln for i, ln in enumerate(typed[-12:])]
+    L += ["", " " + paint("dim", "Built by the ") + paint("accent", ui.area) + paint("dim", " agent   (Tab changes it)")]
+    return L
+
+
+def new_key(key, ui, x, runner):
+    """Every key while writing a new request (q, digits and letters are text here)."""
+    if key in ("\r", "\n"):
+        text = " ".join(ui.buf.split())
+        if not text:
+            ui.mode, ui.msg = None, "nothing written, no card created"
+            return
+        path = create_card(x.project, request_title(text), ui.area, goal=text,
+                           criteria=["The request in the Goal is fulfilled, checked by tests or commands the plan names"])
+        ui.mode, ui.buf = None, ""
+        runner.start()                                  # a run already in progress picks the new card up on its own
+        ui.msg = f"{path.stem.split('-')[0]} created and queued \u00b7 the pipeline is working on it"
+    elif key == "\x1b":
+        ui.mode, ui.msg = None, "request cancelled"
+    elif key == "\t":
+        ui.area = REQUEST_AREAS[(REQUEST_AREAS.index(ui.area) + 1) % len(REQUEST_AREAS)]
+    elif key in ("\x7f", "\x08"):
+        ui.buf = ui.buf[:-1]
+    elif len(key) == 1 and key >= " ":
+        ui.buf += key
+
+
 def tail_lines(path, n, w):
     try:
         data = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
@@ -692,7 +734,9 @@ def frame(x):
     tabs = " ".join(paint("tab", f" {i + 1} {n} ") if i == x.ui.screen else paint("dim", f" {i + 1} {n} ") for i, n in enumerate(TABS))
     run = x.proc_msg or (paint("running", f"{x.spin} running") if x.cur is not None else paint("faint", "● idle"))
     tabs_line = " " + tabs + " " * max(W - vlen(tabs) - vlen(run) - 2, 1) + run + " "
-    if x.ui.mode == "answer":
+    if x.ui.mode == "new":
+        keys = " type your request   Enter create it and start   Tab agent   Esc cancel   Backspace erase"
+    elif x.ui.mode == "answer":
         keys = " 1-3 pick a suggestion   or type your own   Enter next question   Esc cancel   Backspace erase"
     elif x.ui.mode == "edit":
         keys = " type the new value   Enter save   Esc cancel   Backspace erase"
@@ -701,8 +745,8 @@ def frame(x):
     elif x.ui.screen == 4:
         keys = " \u2191\u2193 move   space toggle   \u2190\u2192 model   u refresh limits   d detect   1-6 tabs   q quit"
     else:
-        keys = " \u2190\u2192\u2191\u2193 move   tab / 1-6 views   a answer   r run   x stop   PgUp PgDn scroll   q quit"
-    body = fit(SCREENS[x.ui.screen](x), CH)
+        keys = " \u2190\u2192\u2191\u2193 move   tab / 1-6 views   n new request   a answer   r run   x stop   PgUp PgDn scroll   q quit"
+    body = fit(screen_new(x) if x.ui.mode == "new" else SCREENS[x.ui.screen](x), CH)
     lines = [pad(clip_ansi(head, W), W), pad(clip_ansi(tabs_line, W), W), paint("faint", "─" * W)] + body \
         + [pad(clip_ansi(" " + x.now(), W), W), paint("faint", pad(keys, W))]
     return [keep_sgr(ln) for ln in lines]            # last line of defense: nothing but our own color codes reaches the terminal
@@ -752,6 +796,9 @@ class Runner:
 
 def handle(key, ui, x, runner):
     n = len(COLS)
+    if ui.mode == "new":
+        new_key(key, ui, x, runner)
+        return
     if ui.mode == "answer":
         answer_key(key, ui, x)
         return
@@ -759,7 +806,9 @@ def handle(key, ui, x, runner):
         edit_key(key, ui, x)
         return
     ui.msg = "" if ui.screen != 4 else ui.msg
-    if key == "a" and ui.screen in (0, 2):
+    if key == "n" and ui.screen in (0, 1, 2):
+        ui.mode, ui.buf, ui.msg = "new", "", ""
+    elif key == "a" and ui.screen in (0, 2):
         start_answer(x)
     elif key and key in "123456":
         ui.screen, ui.scroll = int(key) - 1, 0

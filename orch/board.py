@@ -91,6 +91,25 @@ class Card:
         self.path = Path(shutil.move(str(self.path), str(dest / self.path.name)))
 
 
+def create_card(project, title, area="backend", goal=None, criteria=None):
+    """A new card in board/backlog from the template. `goal`/`criteria` fill it in when the request is already written. Returns its path."""
+    board = Board(project)
+    nums = [int(m.group(1)) for s in STATES for c in board.cards(s) if (m := re.match(r"(\d+)-", c.id))]
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "request"
+    dest = board.root / "backlog" / f"{max(nums, default=0) + 1:03d}-{slug}.md"
+    tpl = Path(project) / "board" / "_TEMPLATE.md"
+    if not tpl.is_file():                                   # a project made by hand: use the packaged template
+        tpl = Path(__file__).parent / "templates" / "board" / "_TEMPLATE.md"
+    t = tpl.read_text(encoding="utf-8")
+    t = t.replace("title: <short title>", f"title: {title}").replace("area: backend ", f"area: {area} ").replace("# <short title>", f"# {title}")
+    if goal:
+        t = t.replace("<What I want and why, in plain words.>", goal)
+    if criteria:
+        t = re.sub(r"(## Acceptance criteria\n(?:<!--.*?-->\n)?)(?:- \[ \] .*\n)+", lambda m: m.group(1) + "".join(f"- [ ] {c}\n" for c in criteria), t, count=1, flags=re.DOTALL)
+    dest.write_text(t, encoding="utf-8")
+    return dest
+
+
 class Board:
     def __init__(self, project):
         self.root = Path(project) / "board"

@@ -11,7 +11,7 @@ Always first: read the card, `memory/frontend.md`, `context/project.md` and `con
 If the card has an `## Answers` section, those are the USER's answers to your earlier questions: treat them as part of the requirements, do not ask the same thing again, and only ask NEW questions if something is still missing.
 
 ## PHASE=PLAN
-- Explore the code. Fill `## Plan` (approach, files, tests) and `## Tasks` (checklist `- [ ] ...`, each naming the criterion it serves and how it is verified; every criterion covered).
+- Explore the code. Fill `## Plan` (approach, files, tests) and `## Tasks` (checklist `- [ ] ...`, each naming the criterion it serves and how it is verified; every criterion covered). End every task with the files it changes, `[files: path/a.py, tests/test_a.py]` (include its tests): when the project allows several builders, tasks that share no file are built at the same time.
 - If anything is vague, untestable or missing (framework/stack not stated, no design given): do NOT guess. Fill `## Blockers / questions` with numbered questions and end with `RESULT: BLOCKED`.
   Write every question with exactly THREE suggested answers, the most sensible one first, so the user can answer with one key (they can still type their own):
     ```

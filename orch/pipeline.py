@@ -1,11 +1,14 @@
 """The loop: validate -> plan(+tasks) -> build -> guardrails -> CI -> independent review -> merge -> retro."""
+import contextlib
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-from . import answer, guardrails, menu, providers, term
+from . import answer, groups, guardrails, menu, providers, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -158,8 +161,10 @@ class Pipeline:
             # BUILD
             self.log.state(card=cid, phase=f"build {n}/{g['max_attempts']}")
             t = time.time()
-            out = self._ask("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. "
-                                   f"Card: {card.path.as_posix()}. Feedback from the previous attempt (empty on the first): {feedback.as_posix()}")
+            out = self._team(card, agent, n, feedback) if n == 1 else None
+            if out is None:
+                out = self._ask("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. "
+                                       f"Card: {card.path.as_posix()}. Feedback from the previous attempt (empty on the first): {feedback.as_posix()}")
             self.log.artifact(cid, f"build{n}.txt", out)
             if marker(out) == "BLOCKED":
                 self.log.event("build", cid, agent, f"attempt {n}: blocked", time.time() - t)
@@ -206,6 +211,64 @@ class Pipeline:
             feedback = self.log.artifact(cid, "feedback.txt", "REVIEW REJECTED. Fix these failures.\n" +
                                          "\n".join(f"## {k}\n{o}" for k, (_, o) in results.items()))
         self._block(card, br, t0, f"needs human: {g['max_attempts']} attempts exhausted")
+
+    def _team(self, card, agent, n, feedback):
+        """Several builders on one card: the plan's tasks are grouped by the files they declare, each group is built in its own throw-away
+        worktree, and the parts are merged into the card branch. Returns the build output, or None to let ONE builder do the card
+        (no groups, a part that touches other files, a blocked part, or any merge conflict: nothing is kept)."""
+        parts = groups.split(card.section("Tasks"), self.cfg.get("builders", 1))
+        if not parts or not hasattr(self.run_.runner, "at"):
+            return None
+        cid, head, made = card.id, self.git.out("rev-parse", "HEAD").strip(), []
+        lock = self.hub.lock if self.hub else contextlib.nullcontext()
+        try:
+            with lock:
+                for i in range(1, len(parts) + 1):
+                    d, br = Path(tempfile.mkdtemp(prefix="lc-part-")), f"part/{cid}-{i}"
+                    self.git.run("branch", "-D", br, check=False)
+                    self.git.run("worktree", "add", "-b", br, str(d), head)
+                    made.append((br, d))
+                    (d / "board" / "doing").mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(card.path, d / "board" / "doing" / card.path.name)
+
+            def build(i):
+                br, d = made[i]
+                tasks, files = parts[i]
+                sub = Pipeline(d, self.cfg, self.log, self.run_.runner.at(d), base=self.base)
+                mine = (d / "board" / "doing" / card.path.name).as_posix()
+                out = sub._ask("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {self.cfg['max_attempts']}. PART {i + 1} of {len(parts)}: you are one of "
+                               f"{len(parts)} builders working at the same time on separate parts of this card. Card: {mine}. "
+                               f"Feedback (empty on the first attempt): {feedback.as_posix()}\nDo ONLY these tasks:\n" + "\n".join(f"- [ ] {t}" for t in tasks) +
+                               f"\nChange ONLY these files: {', '.join(files)}. Do not touch any other file and do not run git.")
+                self.log.artifact(cid, f"build{n}-part{i + 1}.txt", out)
+                sub.git.add_all()
+                bad = [f for f in sub.git.changed(head) if f not in files]
+                if marker(out) == "BLOCKED" or bad:
+                    return f"part {i + 1}: " + ("blocked" if marker(out) == "BLOCKED" else "touched other files: " + ", ".join(bad[:5]))
+                if sub.git.changed(head):
+                    sub.git.commit(f"part {i + 1} of card {cid}")
+                return None
+            with ThreadPoolExecutor(len(parts)) as ex:
+                problems = [p for p in ex.map(build, range(len(parts))) if p]
+            if not problems:
+                for br, _ in made:
+                    if self.git.run("merge", "-q", "--no-edit", br, check=False).returncode:
+                        self.git.run("merge", "--abort", check=False)
+                        problems.append(f"{br} conflicts")
+                        break
+            if problems:
+                self.git.run("reset", "--hard", head, check=False)
+                self.log.say("pipeline", f"   team build dropped ({'; '.join(problems)}): one builder does the card")
+                card.log(f"attempt {n}: team build dropped ({'; '.join(problems)})")
+                return None
+            self.log.say("pipeline", f"   {len(parts)} builders worked on {cid} together")
+            return f"RESULT: DONE\nbuilt by {len(parts)} builders"
+        finally:
+            with lock:
+                for br, d in made:
+                    self.git.run("worktree", "remove", "--force", str(d), check=False)
+                    shutil.rmtree(d, ignore_errors=True)
+                    self.git.run("branch", "-D", br, check=False)
 
     def _ci(self):
         ci = subprocess.run(term.fix_ci_command(self.cfg["ci"]), shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
@@ -260,7 +323,9 @@ class Pipeline:
     def _approve(self, card, br, t0, n):
         cid = card.id
         self.log.state(card=cid, phase="merge")
-        self.git.commit(f"card {cid}: {card.title}", f"Approved by {', '.join(r['name'] for r in self.cfg['reviewers'])} after {n} attempt(s); CI green.")
+        self.git.add_all()
+        if self.git.run("diff", "--cached", "--quiet", check=False).returncode:      # the parts of a team build are already committed
+            self.git.commit(f"card {cid}: {card.title}", f"Approved by {', '.join(r['name'] for r in self.cfg['reviewers'])} after {n} attempt(s); CI green.")
         if not self._merge(br, f"Merge card {cid}: {card.title}"):
             return self._block(card, br, t0, f"merge into {self.base} failed")
         card.log(f"APPROVED after {n} attempt(s), merged into {self.base}")

@@ -12,6 +12,7 @@ DEFAULTS = {
     "git_hooks": False,                   # True = run YOUR git hooks on the orchestrator's commits (an agent could plant one)
     "parallel": 1,                        # cards worked on at the same time, each in its own git worktree (1 = one after the other)
     "setup": "",                          # command run once in every new worktree before its card starts, e.g. "npm ci" (parallel only)
+    "builders": 1,                        # builders working at the same time on ONE card, when its tasks declare disjoint [files: ...]
     "split": True,                        # splitter agent breaks big cards into child cards first
     "verbose": False,                     # True = full agent text in the live panes (artifacts always keep everything)
     "roles": {

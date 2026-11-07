@@ -4,6 +4,8 @@
 
 First public version.
 
+- Several builders on one card (`builders`): tasks declare `[files: ...]`, groups with disjoint files are built at the same time in throw-away worktrees and merged; any doubt falls back to one builder.
+
 - Several cards at once (`parallel`, `run -j N`): one git worktree per card, serialized merges and retros, base re-merged and CI re-run when another card landed first, `depends:` in cards, optional `setup` command per worktree.
 
 - Any AI in any role: presets for Claude Code, Antigravity, Codex, Gemini CLI and Ollama, plus any CLI you describe under `providers` in the config. Custom providers need `lonerchestrator trust`. The AIs tab, intro, doctor and installers list them; the suggested answers can come from any AI (`suggester` role). Codex, Gemini and Ollama presets are untested.

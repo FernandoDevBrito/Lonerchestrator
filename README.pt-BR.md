@@ -199,6 +199,12 @@ Ajuste **Cards at the same time** na aba Settings (ou `"parallel": 3` na config,
 - A aba Flow acompanha o card mais recente; a aba Board marca todos os que estão rodando. Os painéis dos agentes misturam a saída de todos os cards (cada linha da tabela de log diz o card).
 - `parallel: 1` (padrão) é o comportamento antigo: um card depois do outro, sem worktrees.
 
+## Vários builders no mesmo card
+
+Ajuste **Builders per card** (aba Settings, ou `"builders": 3`) e o planner passa a listar os arquivos de cada tarefa: `- [ ] criar o endpoint [files: api/users.py, tests/test_users.py] (critério 1)`. Tarefas que não dividem arquivo são construídas **ao mesmo tempo**, cada grupo por um builder em uma worktree descartável; as partes são mescladas na branch do card, e guardrails, CI e as duas revisões rodam no resultado inteiro como sempre.
+
+Se qualquer coisa for duvidosa, volta para UM builder sem aproveitar nada da tentativa: tarefa sem `[files: ...]`, todas as tarefas dividindo um arquivo, parte que mexeu em arquivo que não declarou, parte bloqueada ou conflito de merge. Só a primeira tentativa é feita pelo time; as tentativas depois de uma rejeição usam um builder. Combina com cards em paralelo. Projetos criados antes desta função mantêm as instruções antigas do planner: rode `lonerchestrator init --force` para atualizá-las (ele sobrescreve os arquivos de modelo, agentes e `CLAUDE.md` inclusos, então faça commit das suas edições antes), ou adicione a regra `[files: ...]` aos seus agentes planner.
+
 ## Qualquer IA
 
 Todo papel (splitter, planner, builder, retro, os dois revisores e o sugestor de respostas) pode rodar em **qualquer IA de linha de comando**, não só o Claude Code. Escolha na aba AIs, ou no `.orchestrator/config.json`:

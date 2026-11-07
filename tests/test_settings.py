@@ -163,6 +163,9 @@ def test_settings_tab_keys_change_persist_and_edit_text(project):
     key("down")                                                          # Cards at the same time
     key("right")
     assert settings.value(project, "parallel") == 2
+    key("down")                                                          # Builders per card
+    key("right")
+    assert settings.value(project, "builders") == 2
     key("down")                                                          # Split big cards
     key(" ")
     assert settings.value(project, "split") is False

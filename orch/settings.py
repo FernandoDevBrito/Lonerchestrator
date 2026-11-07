@@ -16,6 +16,8 @@ SPEC = [
      "How many times the builder may retry after a rejection before the card is parked for you."),
     ("parallel", "Cards at the same time", "choice", [1, 2, 3, 4], "",
      "How many cards are worked on together, each in its own git worktree. 1 = one after the other. Cards that depend on each other need `depends:` in the card."),
+    ("builders", "Builders per card", "choice", [1, 2, 3, 4], "",
+     "Several builders on the same card at once, each on tasks that touch different files (the planner lists them). Any doubt or conflict: one builder."),
     ("split", "Split big cards", "bool", None, "",
      "A splitter agent breaks cards with 3+ independent deliverables into small cards. Costs one cheap call per card."),
     ("card_timeout_min", "Time limit per card", "choice", [15, 30, 45, 90, 180], " min",

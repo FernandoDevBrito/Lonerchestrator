@@ -73,6 +73,10 @@ class Runner:
         self.project, self.cfg, self.log, self.sleep = project, cfg, log, sleep
         self.usage = usage or Usage(getattr(log, "dir", None))
 
+    def at(self, path):
+        """The same runner, working in another folder (a part-worktree of the card, see pipeline._team)."""
+        return Runner(path, self.cfg, self.log, sleep=self.sleep, usage=self.usage)
+
     # public API used by the pipeline (tests replace this class with a fake)
     def claude(self, role, agent, prompt, model=None):
         exe = shutil.which("claude") or "claude"

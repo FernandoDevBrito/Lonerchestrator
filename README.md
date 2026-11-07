@@ -201,6 +201,12 @@ Set **Cards at the same time** in the Settings tab (or `"parallel": 3` in the co
 - The panel's Flow tab follows the most recently active card; the Board tab marks every running card. The agent panes interleave the output of all running cards (each line of the log table names its card).
 - `parallel: 1` (the default) is the old behaviour: one card after the other, no worktrees.
 
+## Several builders on one card
+
+Set **Builders per card** (Settings tab, or `"builders": 3`) and the planner lists the files each task changes: `- [ ] add the endpoint [files: api/users.py, tests/test_users.py] (criterion 1)`. Tasks that share no file are built **at the same time**, each group by its own builder in a throw-away worktree; the parts are then merged into the card branch, and guardrails, CI and the two reviews run on the whole result as usual.
+
+It falls back to ONE builder, with nothing kept from the attempt, whenever anything is doubtful: a task without `[files: ...]`, all tasks sharing a file, a part that touches a file it did not declare, a blocked part, or a merge conflict. Only the first attempt is built by the team; retries after a rejection use one builder. It combines with parallel cards. Projects created before this feature keep their old planner instructions: run `lonerchestrator init --force` to refresh them (it overwrites the template files, agents and `CLAUDE.md` included, so commit your edits first), or add the `[files: ...]` rule to your planner agents by hand.
+
 ## Any AI
 
 Every role (splitter, planner, builder, retro, the two reviewers and the answer suggester) can run on **any AI command-line tool**, not only Claude Code. Pick them in the AIs tab, or in `.orchestrator/config.json`:

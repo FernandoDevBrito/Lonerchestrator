@@ -37,6 +37,8 @@ Secret scan of the full git history: nothing found. Static analysis (bandit): on
 
 ## Known limits (what this does NOT protect you from)
 
+- `lonerchestrator web` serves a page on `127.0.0.1` only. It needs the random token from the link it prints, checks the Host and Origin headers, and shows server text only as text. Anyone who can use your computer's loopback (other local users on a shared machine) and gets the link can drive it: do not share the link and stop the command when you are done.
+
 - With `parallel` above 1, agents of different cards run at the same time in separate git worktrees. They are separated by folder, not by a sandbox: an agent can still reach files outside its worktree if its AI allows it. The `.git` tamper check and the diff guardrails apply to every card. The optional `setup` command runs through a shell and is part of the trust approval.
 
 - **`.claude/settings.json` only restricts Claude Code.** Other AIs (Codex, Gemini, your own `providers`) are limited by the flags in their provider (`edit_args`, `read_args`), plus the diff guardrails, the `.git` tamper check and the reviewers. Read a provider before trusting it; a provider defined in a project's config runs a program and needs `lonerchestrator trust`.

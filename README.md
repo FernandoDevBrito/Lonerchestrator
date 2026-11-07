@@ -191,6 +191,21 @@ Checked by **code**, not by prompts, before CI runs:
 
 `base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide.
 
+## The kanban page (browser)
+
+```bash
+lonerchestrator web
+```
+
+Opens a kanban board in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Columns: Backlog, In progress, Needs you, Done. It updates by itself while the pipeline runs.
+
+- **＋ New request:** say what you want changed in plain words. The AI with the `suggester` role reads it and drafts the card (title, which agent builds it, goal, 2 to 5 testable criteria); without a reachable AI a plain rule-based draft is used, so a request is never lost. Tick *start working now* and the pipeline starts (or picks the card up if it is already running). A vague request is fine: the planner asks you instead of guessing.
+- **Click a card** to see its goal, criteria, plan, task progress, what each agent did, and the card log.
+- **Needs you:** the planner's questions come with 3 suggested answers; click one or type your own, then *Send answers & run*. *Suggest answers* asks the AI for them when a card came without.
+- **Run / Stop** control the pipeline, like `r` and `x` in the terminal panel.
+
+Safety: the page only accepts requests that carry the token, come from `127.0.0.1`/`localhost` (DNS-rebinding check) and, for changes, from the page itself (Origin check). Everything the server sends is shown as text, never as HTML. Use `--port N` to pick a port and `--no-open` to only print the link.
+
 ## Several cards at once
 
 Set **Cards at the same time** in the Settings tab (or `"parallel": 3` in the config, or `lonerchestrator run -j 3`). Each card then works in its own git worktree under `.orchestrator/worktrees/<card>` with its own branch, so agents never touch each other's files. Planning, building, guardrails, CI and the two reviews run in parallel; merges and retros happen one at a time in your main checkout. If another card was merged first, a card merges the new base into its branch and runs CI again before it is merged.

@@ -37,7 +37,7 @@ lonerchestrator = "orch.cli:main"
 packages = ["orch"]
 
 [tool.setuptools.package-data]
-orch = ["templates/**/*"]
+orch = ["templates/**/*", "static/*"]
 
 [tool.ruff]
 line-length = 140

@@ -207,6 +207,18 @@ def cmd_tui(a, project):
     return 0
 
 
+def cmd_web(a, project):
+    """A kanban page in your browser (this computer only): watch cards move, add requests, answer questions, run/stop."""
+    if not (project / "board").exists():
+        print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
+        return 1
+    if not ensure_trust(project, config.load(project)):
+        return 1
+    from .web import run_web
+    run_web(project, a.base or config.load(project)["base"], port=a.port, open_browser=not a.no_open)
+    return 0
+
+
 def cmd_live(a, project):
     """Open the TUI in a NEW terminal window of exactly the TUI size (Windows Terminal, macOS Terminal, common Linux terminals)."""
     if not (project / "board").exists():
@@ -290,6 +302,10 @@ def main(argv=None):
     p.add_argument("--base")
     p.add_argument("--run", action="store_true", help="start the pipeline right away")
     p.add_argument("--setup", action="store_true", help="run the introduction first")
+    p = sub.add_parser("web", help="kanban board in your browser: watch cards move, add requests in plain words, answer questions")
+    p.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free one)")
+    p.add_argument("--no-open", action="store_true", help="only print the link, do not open the browser")
+    p.add_argument("--base")
     p = sub.add_parser("intro", help="detect logged-in AIs and assign agents/models to roles")
     p.add_argument("--yes", action="store_true", help="accept defaults, no questions")
     p = sub.add_parser("tui", help="full-screen panel: Board | Flow | Planner | Agents | AIs (keyboard)")

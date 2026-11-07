@@ -189,6 +189,21 @@ Verificados por **código**, não por prompt, antes dos testes:
 
 `base` é a branch que recebe os cards aprovados. Use outra (ex.: `agents-setup`) para a `main` ficar intocada até você decidir.
 
+## O kanban no navegador
+
+```bash
+lonerchestrator web
+```
+
+Abre um kanban no navegador, servido só para o seu computador (`127.0.0.1`, com um token aleatório no link que ele imprime). Colunas: Backlog, In progress, Needs you, Done. Atualiza sozinho enquanto o pipeline roda.
+
+- **＋ New request:** diga em palavras simples o que quer mudar. A IA do papel `suggester` lê o pedido e monta o card (título, qual agente constrói, objetivo, 2 a 5 critérios testáveis); sem IA disponível, usa um rascunho simples por regras, então o pedido nunca se perde. Marque *start working now* e o pipeline começa (ou pega o card se já estiver rodando). Pedido vago não tem problema: o planner pergunta em vez de chutar.
+- **Clique num card** para ver objetivo, critérios, plano, progresso das tarefas, o que cada agente fez e o log do card.
+- **Needs you:** as perguntas do planner vêm com 3 respostas sugeridas; clique em uma ou escreva a sua, depois *Send answers & run*. *Suggest answers* pede à IA quando o card veio sem sugestões.
+- **Run / Stop** controlam o pipeline, como `r` e `x` no painel do terminal.
+
+Segurança: a página só aceita pedidos com o token, vindos de `127.0.0.1`/`localhost` (proteção contra DNS rebinding) e, para alterações, da própria página (checagem de Origin). Tudo que o servidor envia é mostrado como texto, nunca como HTML. Use `--port N` para escolher a porta e `--no-open` para só imprimir o link.
+
 ## Vários cards ao mesmo tempo
 
 Ajuste **Cards at the same time** na aba Settings (ou `"parallel": 3` na config, ou `lonerchestrator run -j 3`). Cada card passa a trabalhar em uma git worktree própria, em `.orchestrator/worktrees/<card>`, com branch própria, então os agentes nunca mexem nos arquivos uns dos outros. Plano, build, guardrails, CI e as duas revisões rodam em paralelo; merges e retros acontecem um de cada vez no seu checkout principal. Se outro card foi mesclado antes, o card traz a base nova para a sua branch e roda o CI de novo antes do merge.

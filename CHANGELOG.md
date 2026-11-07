@@ -4,6 +4,8 @@
 
 First public version.
 
+- `lonerchestrator web`: kanban board in the browser (local only, token + Host/Origin checks, no dependencies). New requests in plain words are understood by the `suggester` AI into a card draft (rule-based fallback); click cards for details, answer questions with 3 suggestions, run and stop.
+
 - Panel key `n`: write a request in plain words, the card is created and the pipeline starts (or picks it up if already running).
 
 - Several builders on one card (`builders`): tasks declare `[files: ...]`, groups with disjoint files are built at the same time in throw-away worktrees and merged; any doubt falls back to one builder.

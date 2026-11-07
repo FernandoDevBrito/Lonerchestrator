@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from conftest import add_card, sh
-from test_anyai import mine  # noqa: F401  (the fixture: config with a fake third-party AI in every role)
+from test_anyai import mine, records  # noqa: F401  (the fixture: config with a fake third-party AI in every role)
 
 from orch.agents import Runner
 from orch.board import Board, Card
@@ -20,7 +20,7 @@ def test_two_cards_run_together_and_both_merge(project, mine, log):  # noqa: F81
     assert Parallel(project, cfg, log, Runner(project, cfg, log)).run() == 0
     assert sorted(c.id for c in Board(project).cards("done")) == ["001-a", "002-b"]
     assert (project / "001-a.py").exists() and (project / "002-b.py").exists()          # both merged into main
-    built = [json.loads(ln) for ln in calls.read_text(encoding="utf-8").splitlines() if '"built"' in ln]
+    built = [r for r in records(calls) if "built" in r]
     assert len({b["cwd"] for b in built}) == 2 and all(".orchestrator" in b["cwd"] for b in built)   # each in its own worktree
     a, b = sorted(built, key=lambda x: x["t0"])
     assert b["t0"] < a["t1"]                                                              # they really overlapped in time

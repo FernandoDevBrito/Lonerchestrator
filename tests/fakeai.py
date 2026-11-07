@@ -11,8 +11,9 @@ t0 = time.time()
 
 
 def note(**kw):
-    with open(os.environ["FAKEAI_LOG"], "a", encoding="utf-8") as f:
-        f.write(json.dumps(kw) + "\n")
+    """One file per record: concurrent AIs appending to one file lose lines on Windows."""
+    base = Path(os.environ["FAKEAI_LOG"])
+    (base.parent / f"calls-{os.getpid()}-{time.time_ns()}.json").write_text(json.dumps(kw), encoding="utf-8")
 
 
 note(argv=sys.argv[1:], len=len(prompt), cwd=os.getcwd())

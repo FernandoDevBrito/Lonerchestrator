@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 
-STREAMS = ("pipeline", "planner", "builder", "qa", "gemini", "retro")
+STREAMS = ("pipeline", "planner", "builder", "qa", "cross", "retro")
 
 
 class Log:

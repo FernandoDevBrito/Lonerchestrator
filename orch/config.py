@@ -8,11 +8,17 @@ DEFAULTS = {
     "max_attempts": 3,                    # implement attempts per card, then blocked/
     "card_timeout_min": 45,               # wall-clock budget per card
     "ci": "bash scripts/ci.sh",           # must exit 0 to reach review
+    # model per role (planner/builder/retro run through Claude Code agents; `orch intro` sets these)
+    "roles": {
+        "planner": {"cli": "claude", "model": "sonnet"},
+        "builder": {"cli": "claude", "model": "sonnet"},
+        "retro": {"cli": "claude", "model": "sonnet"},
+    },
     "agents": {"backend": "backend", "frontend": "frontend", "both": "backend"},
     # every reviewer must approve (unless required=false and its CLI is missing)
     "reviewers": [
-        {"name": "qa", "kind": "claude", "agent": "qa", "required": True},
-        {"name": "gemini", "kind": "agy", "model": "gemini-4-argon-high", "required": True},
+        {"name": "qa", "kind": "claude", "agent": "qa", "model": "sonnet", "required": True},
+        {"name": "cross", "kind": "agy", "model": "gemini-4-argon-high", "required": True},
     ],
     "guardrails": {
         "protected": ["scripts/**", ".claude/**", "CLAUDE.md", "GEMINI.md", ".orchestrator/**"],

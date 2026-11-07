@@ -60,7 +60,7 @@ def project(tmp_path):
 def cfg():
     c = config.load(Path("."))
     c["ci"] = f'"{sys.executable}" -c "pass"'
-    c["reviewers"] = [{"name": "qa", "kind": "claude", "agent": "qa"}, {"name": "gemini", "kind": "agy", "model": "m"}]
+    c["reviewers"] = [{"name": "qa", "kind": "claude", "agent": "qa"}, {"name": "cross", "kind": "agy", "model": "m"}]
     return c
 
 

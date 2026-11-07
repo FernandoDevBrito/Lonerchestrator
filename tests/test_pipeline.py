@@ -10,10 +10,11 @@ class Fake:
     """claude(role, agent, prompt) / agy(role, model, prompt) with scripted behavior."""
 
     def __init__(self, project, plan="RESULT: PLANNED", build=None, qa="VERDICT: APPROVED", gem="VERDICT: APPROVED"):
-        self.p, self.plan, self.build, self.qa, self.gem, self.calls = project, plan, build, qa, gem, []
+        self.p, self.plan, self.build, self.qa, self.gem, self.calls, self.models = project, plan, build, qa, gem, [], {}
 
-    def claude(self, role, agent, prompt):
+    def claude(self, role, agent, prompt, model=None):
         self.calls.append(role)
+        self.models[role] = model
         card = next(self.p.glob("board/doing/*.md"), None)
         if role == "planner":
             if card and "BLOCKED" not in self.plan:
@@ -48,6 +49,7 @@ def test_happy_path_merges_and_retro(project, cfg, log):
     assert names(project, "done") == ["001-thing.md"]
     assert (project / "thing.py").exists()                       # merged into main
     assert fake.calls.count("builder") == 1 and "retro" in fake.calls
+    assert fake.models["builder"] == "sonnet"                    # role models come from config
     assert "001-thing" in (project / "context" / "history.md").read_text(encoding="utf-8")
     assert (log.dir / "events.jsonl").read_text(encoding="utf-8").count("card_done") == 1
 
@@ -88,7 +90,7 @@ def test_guardrail_violation_never_reaches_review(project, cfg, log):
     fake = Fake(project, build=bad)
     run(project, cfg, log, fake)
     assert names(project, "blocked") == ["001-thing.md"]
-    assert "qa" not in fake.calls and "gemini" not in fake.calls   # stopped by guardrails every time
+    assert "qa" not in fake.calls and "cross" not in fake.calls   # stopped by guardrails every time
 
 
 def test_ci_failure_goes_back_to_builder(project, cfg, log):

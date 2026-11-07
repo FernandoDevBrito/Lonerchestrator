@@ -8,17 +8,18 @@ import sys
 import time
 from pathlib import Path
 
-from . import config
+from . import config, view
 from .agents import Runner
 from .board import AREAS, Board
 from .events import Log
 from .gitops import Git
+from .intro import configured, run_intro
 from .pipeline import Pipeline
 
 ROOT = Path(__file__).resolve().parent.parent
 GITIGNORE = ["# orchestrator runtime state", "board/*/*.md", "board/_log.md", ".orchestrator/runs/", ".orchestrator/streams/",
-             ".orchestrator/state.json", "__pycache__/"]
-COLOR = {"pipeline": "37", "planner": "36", "builder": "33", "qa": "35", "gemini": "34", "retro": "32"}
+             ".orchestrator/state.json", ".orchestrator/ais.json", "__pycache__/"]
+COLOR = {"pipeline": "37", "planner": "36", "builder": "33", "qa": "35", "cross": "34", "retro": "32"}
 
 
 def cmd_init(a, project):
@@ -45,7 +46,18 @@ def cmd_init(a, project):
     add = [ln for ln in GITIGNORE if ln not in have]
     if add:
         gi.write_text("\n".join(have + add) + "\n", encoding="utf-8")
-    print("\nnext: fill context/project.md, adjust scripts/ci.sh, then `orch new \"title\"` and `orch live`")
+    if sys.stdin.isatty():
+        run_intro(project)
+    print("\nnext: `orch intro` (pick AIs/agents) if skipped, fill context/project.md, adjust scripts/ci.sh, then `orch new \"title\"` and `orch live`")
+    return 0
+
+
+def cmd_intro(a, project):
+    return 0 if run_intro(project, assume_yes=a.yes) else 1
+
+
+def cmd_view(a, project):
+    view.loop(project)
     return 0
 
 
@@ -84,8 +96,11 @@ def cmd_run(a, project):
 
 def cmd_live(a, project):
     if not shutil.which("wt"):
-        print("Windows Terminal (wt) not found; use `orch run` plus `orch tail <role>` in other terminals")
+        print("Windows Terminal (wt) not found; use `orch view`, `orch run` and `orch tail <role>` in separate terminals")
         return 1
+    if a.setup or not configured(project):
+        if run_intro(project, assume_yes=not sys.stdin.isatty()) is None:
+            return 1
     orch, proj = str(ROOT / "bin" / "orch.cmd"), str(project)
     run_args = ["run"] + (["--card", a.card] if a.card else []) + (["--base", a.base] if a.base else [])
 
@@ -95,14 +110,15 @@ def cmd_live(a, project):
     def tail(name):
         return pane(name, ["tail", name])
 
-    # grid: pipeline | planner | builder   over   qa | gemini | retro
-    cmd = ["wt", "-w", "new", "new-tab", *pane("pipeline", run_args),
-           ";", "split-pane", "-H", "-s", "0.4", *tail("qa"),
-           ";", "split-pane", "-V", "-s", "0.67", *tail("gemini"),
+    # top: board (n8n-style view) | run log      bottom: planner | builder | qa | cross | retro
+    cmd = ["wt", "-w", "new", "new-tab", *pane("board", ["view"]),
+           ";", "split-pane", "-H", "-s", "0.45", *tail("planner"),
+           ";", "split-pane", "-V", "-s", "0.8", *tail("builder"),
+           ";", "split-pane", "-V", "-s", "0.75", *tail("qa"),
+           ";", "split-pane", "-V", "-s", "0.667", *tail("cross"),
            ";", "split-pane", "-V", "-s", "0.5", *tail("retro"),
            ";", "move-focus", "up",
-           ";", "split-pane", "-V", "-s", "0.67", *tail("planner"),
-           ";", "split-pane", "-V", "-s", "0.5", *tail("builder")]
+           ";", "split-pane", "-V", "-s", "0.33", *pane("run", run_args)]
     subprocess.Popen(cmd)
     return 0
 
@@ -158,6 +174,11 @@ def main(argv=None):
         p.add_argument("--base")
         if name == "run":
             p.add_argument("--dry-run", action="store_true")
+        else:
+            p.add_argument("--setup", action="store_true", help="run the introduction first")
+    p = sub.add_parser("intro", help="detect logged-in AIs and assign agents/models to roles")
+    p.add_argument("--yes", action="store_true", help="accept defaults, no questions")
+    sub.add_parser("view", help="live ASCII board (pipeline, agents, kanban, events)")
     p = sub.add_parser("tail", help="follow one agent's live stream")
     p.add_argument("name")
     sub.add_parser("status")

@@ -40,9 +40,10 @@ class Runner:
         self.project, self.cfg, self.log, self.sleep = project, cfg, log, sleep
 
     # public API used by the pipeline (tests replace this class with a fake)
-    def claude(self, role, agent, prompt):
+    def claude(self, role, agent, prompt, model=None):
         exe = shutil.which("claude") or "claude"
-        cmd = [exe, "-p", "--verbose", "--output-format", "stream-json", "--agent", agent, "--permission-mode", "acceptEdits", prompt]
+        cmd = [exe, "-p", "--verbose", "--output-format", "stream-json", "--agent", agent, "--permission-mode", "acceptEdits",
+               *(["--model", model] if model else []), prompt]
         return self._run(role, cmd, claude=True)
 
     def agy(self, role, model, prompt):

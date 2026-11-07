@@ -17,6 +17,9 @@ class Pipeline:
         self.base = base or cfg["base"]
         self.git, self.board = Git(project), Board(project)
 
+    def _m(self, role):
+        return self.cfg["roles"][role].get("model")
+
     # ---------- run ----------
     def preflight(self):
         if not self.git.has_branch(self.base):
@@ -69,7 +72,7 @@ class Pipeline:
         # PLAN (+ tasks): the planner never changes code; vague cards stop here
         self.log.state(card=cid, phase="plan")
         t = time.time()
-        out = self.run_.claude("planner", agent, f"PHASE=PLAN. Card: {card.path.as_posix()}. Follow your agent instructions and CLAUDE.md.")
+        out = self.run_.claude("planner", agent, model=self._m("planner"), prompt=f"PHASE=PLAN. Card: {card.path.as_posix()}. Follow your agent instructions and CLAUDE.md.")
         self.log.artifact(cid, "plan.txt", out)
         m = marker(out)
         if m == "BLOCKED":
@@ -88,8 +91,8 @@ class Pipeline:
             # BUILD
             self.log.state(card=cid, phase=f"build {n}/{g['max_attempts']}")
             t = time.time()
-            out = self.run_.claude("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. Card: {card.path.as_posix()}. "
-                                   f"Feedback from the previous attempt (empty on the first): {feedback.as_posix()}")
+            out = self.run_.claude("builder", agent, model=self._m("builder"), prompt=f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. "
+                                   f"Card: {card.path.as_posix()}. Feedback from the previous attempt (empty on the first): {feedback.as_posix()}")
             self.log.artifact(cid, f"build{n}.txt", out)
             if marker(out) == "BLOCKED":
                 self.log.event("build", cid, agent, f"attempt {n}: blocked", time.time() - t)
@@ -97,6 +100,7 @@ class Pipeline:
             self.log.event("build", cid, agent, f"attempt {n}: done", time.time() - t)
 
             # GUARDRAILS
+            self.log.state(card=cid, phase=f"guardrails {n}")
             self.git.add_all()
             diff = self.git.diff_cached(self.base)
             viol = guardrails.check_diff(g["guardrails"], self.git.changed(self.base), self.git.changed(self.base, deleted=True), diff)
@@ -141,7 +145,7 @@ class Pipeline:
         card_note = f"Review input (card without plan/log, diff, CI tail): {review.as_posix()}."
         def one(r):
             if r["kind"] == "claude":
-                o = self.run_.claude(r["name"], r["agent"], f"Evaluate card {cid}. {card_note} Follow your agent instructions.")
+                o = self.run_.claude(r["name"], r["agent"], f"Evaluate card {cid}. {card_note} Follow your agent instructions.", model=r.get("model"))
             else:
                 if not r.get("required", True) and not shutil.which("agy"):
                     return r["name"], ("APPROVED", "skipped: agy not installed")
@@ -153,6 +157,7 @@ class Pipeline:
     # ---------- outcomes ----------
     def _approve(self, card, br, t0, n):
         cid = card.id
+        self.log.state(card=cid, phase="merge")
         self.git.commit(f"card {cid}: {card.title}", f"Approved by {', '.join(r['name'] for r in self.cfg['reviewers'])} after {n} attempt(s); CI green.")
         self.git.checkout(self.base)
         if not self.git.merge_no_ff(br, f"Merge card {cid}: {card.title}"):
@@ -180,7 +185,7 @@ class Pipeline:
     def _retro(self, card, status, attempts):
         self.log.state(card=card.id, phase="retro")
         t = time.time()
-        self.run_.claude("retro", "retro", f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")
+        self.run_.claude("retro", "retro", model=self._m("retro"), prompt=f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")
         self.log.event("retro", card.id, "retro", "ok", time.time() - t)
         hist = self.p / "context" / "history.md"
         hist.parent.mkdir(exist_ok=True)

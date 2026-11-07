@@ -91,7 +91,7 @@ def render(project, width=110, height=40, color=True):
     card = next((Card(p) for s in STATES for p in (project / "board" / s).glob(f"{card_id}.md")), None) if card_id else None
     area = card.area if card else "backend"
     agent = cfg["agents"].get(area, "backend")
-    attempt = phase.split()[1] if " " in phase else (card.get("attempts", "0") if card else "0")
+    attempt = phase.split()[1].split("/")[0] if " " in phase else (card.get("attempts", "0") if card else "0")
 
     # ---- header
     ai = "  ".join(f"{k}:{c('ok', 'ok') if v.get('logged_in') else c('fail', 'no')}" for k, v in ais.get("ais", {}).items()) or "run `orch intro`"

@@ -28,7 +28,10 @@ def verdict(text):
 
 
 def _short(d):
-    s = next(iter(d.values()), "") if isinstance(d, dict) else str(d)
+    if isinstance(d, dict):
+        s = next((d[k] for k in ("file_path", "command", "pattern", "path") if k in d), next(iter(d.values()), ""))
+    else:
+        s = d
     return str(s).replace("\n", " ")[:90]
 
 

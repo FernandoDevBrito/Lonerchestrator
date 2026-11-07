@@ -157,6 +157,7 @@ class Pipeline:
         self.git.checkout(self.base)
         if not self.git.merge_no_ff(br, f"Merge card {cid}: {card.title}"):
             return self._block(card, br, t0, f"merge into {self.base} failed")
+        self.git.delete_branch(br)   # fully merged, safe delete
         card.log(f"APPROVED after {n} attempt(s), merged into {self.base}")
         card.move("done")
         self.log.event("card_done", cid, "orchestrator", f"merged into {self.base}", time.time() - t0, attempts=n)

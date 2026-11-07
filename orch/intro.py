@@ -41,7 +41,10 @@ def _pick(title, options, default, ask, out):
     for i, (label, _) in enumerate(options, 1):
         out(f"  {i}) {label}{'   <- default' if i - 1 == default else ''}")
     while True:
-        a = ask(f"  choose [1-{len(options)}, enter={default + 1}]: ").strip()
+        try:
+            a = ask(f"  choose [1-{len(options)}, enter={default + 1}]: ").strip()
+        except EOFError:        # no terminal attached: take the default
+            return options[default][1]
         if not a:
             return options[default][1]
         if a.isdigit() and 1 <= int(a) <= len(options):
@@ -50,7 +53,7 @@ def _pick(title, options, default, ask, out):
 
 def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     """Detect AIs, assign roles, write .orchestrator/config.json + ais.json. Returns the new raw config."""
-    from . import config, view
+    from . import config, tui
     project = Path(project)
     cfg = config.load(project)
     out("\n=== ORCH introduction: AIs on this computer ===")
@@ -101,7 +104,7 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     raw.update(new)
     f.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
     out("\nSaved .orchestrator/config.json. This is your pipeline:\n")
-    out(view.render(project, width=110, height=24))
+    out(tui.render(project, screen=1))
     return raw
 
 

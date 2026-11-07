@@ -8,17 +8,18 @@ import sys
 import time
 from pathlib import Path
 
-from . import config, view
+from . import config
 from .agents import Runner
 from .board import AREAS, Board
 from .events import Log
 from .gitops import Git
 from .intro import configured, run_intro
 from .pipeline import Pipeline
+from .tui import H, W, run_tui
 
 ROOT = Path(__file__).resolve().parent.parent
 GITIGNORE = ["# orchestrator runtime state", "board/*/*.md", "board/_log.md", ".orchestrator/runs/", ".orchestrator/streams/",
-             ".orchestrator/state.json", ".orchestrator/ais.json", "__pycache__/"]
+             ".orchestrator/state.json", ".orchestrator/ais.json", ".orchestrator/tui.size", ".orchestrator/run.out", "__pycache__/"]
 COLOR = {"pipeline": "37", "planner": "36", "builder": "33", "qa": "35", "cross": "34", "retro": "32"}
 
 
@@ -56,11 +57,6 @@ def cmd_intro(a, project):
     return 0 if run_intro(project, assume_yes=a.yes) else 1
 
 
-def cmd_view(a, project):
-    view.loop(project)
-    return 0
-
-
 def cmd_new(a, project):
     board = Board(project)
     nums = [int(m.group(1)) for s in ("backlog", "doing", "review", "done", "blocked") for c in board.cards(s)
@@ -94,32 +90,23 @@ def cmd_run(a, project):
     return pipe.run(a.card)
 
 
+def cmd_tui(a, project):
+    run_tui(project, a.base or config.load(project)["base"], autorun=a.run)
+    return 0
+
+
 def cmd_live(a, project):
+    """One Windows Terminal window opened at exactly the TUI size (tabs: Board, Flow, Planner, Agents)."""
     if not shutil.which("wt"):
-        print("Windows Terminal (wt) not found; use `orch view`, `orch run` and `orch tail <role>` in separate terminals")
+        print("Windows Terminal (wt) not found; run `orch tui` in a terminal of at least %dx%d" % (W, H))
         return 1
     if a.setup or not configured(project):
         if run_intro(project, assume_yes=not sys.stdin.isatty()) is None:
             return 1
     orch, proj = str(ROOT / "bin" / "orch.cmd"), str(project)
-    run_args = ["run"] + (["--card", a.card] if a.card else []) + (["--base", a.base] if a.base else [])
-
-    def pane(title, args):
-        return ["--title", title, "-d", proj, "cmd", "/k", orch, "-C", proj, *args]
-
-    def tail(name):
-        return pane(name, ["tail", name])
-
-    # top: board (n8n-style view) | run log      bottom: planner | builder | qa | cross | retro
-    cmd = ["wt", "-w", "new", "new-tab", *pane("board", ["view"]),
-           ";", "split-pane", "-H", "-s", "0.45", *tail("planner"),
-           ";", "split-pane", "-V", "-s", "0.8", *tail("builder"),
-           ";", "split-pane", "-V", "-s", "0.75", *tail("qa"),
-           ";", "split-pane", "-V", "-s", "0.667", *tail("cross"),
-           ";", "split-pane", "-V", "-s", "0.5", *tail("retro"),
-           ";", "move-focus", "up",
-           ";", "split-pane", "-V", "-s", "0.33", *pane("run", run_args)]
-    subprocess.Popen(cmd)
+    args = ["-C", proj, "tui"] + (["--base", a.base] if a.base else []) + (["--run"] if a.run else [])
+    # --size is the text area in cells; +0 rows because the tab bar is hidden by --suppressApplicationTitle-less single tab
+    subprocess.Popen(["wt", "--size", f"{W},{H}", "-w", "new", "new-tab", "--title", f"orch {project.name}", "-d", proj, "cmd", "/k", orch, *args])
     return 0
 
 
@@ -168,17 +155,19 @@ def main(argv=None):
     p = sub.add_parser("new", help="create a card in board/backlog")
     p.add_argument("title")
     p.add_argument("--area", choices=AREAS, default="backend")
-    for name in ("run", "live"):
-        p = sub.add_parser(name, help="process the backlog" if name == "run" else "run in Windows Terminal split panes, one per agent")
-        p.add_argument("--card")
-        p.add_argument("--base")
-        if name == "run":
-            p.add_argument("--dry-run", action="store_true")
-        else:
-            p.add_argument("--setup", action="store_true", help="run the introduction first")
+    p = sub.add_parser("run", help="process the backlog (headless)")
+    p.add_argument("--card")
+    p.add_argument("--base")
+    p.add_argument("--dry-run", action="store_true")
+    p = sub.add_parser("live", help="open the TUI in a Windows Terminal window of the right size")
+    p.add_argument("--base")
+    p.add_argument("--run", action="store_true", help="start the pipeline right away")
+    p.add_argument("--setup", action="store_true", help="run the introduction first")
     p = sub.add_parser("intro", help="detect logged-in AIs and assign agents/models to roles")
     p.add_argument("--yes", action="store_true", help="accept defaults, no questions")
-    sub.add_parser("view", help="live ASCII board (pipeline, agents, kanban, events)")
+    p = sub.add_parser("tui", help="full-screen board: Board | Flow | Planner | Agents (keyboard)")
+    p.add_argument("--base")
+    p.add_argument("--run", action="store_true", help="start the pipeline right away")
     p = sub.add_parser("tail", help="follow one agent's live stream")
     p.add_argument("name")
     sub.add_parser("status")

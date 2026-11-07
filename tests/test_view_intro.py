@@ -1,7 +1,5 @@
 import json
 
-from conftest import add_card
-
 from orch import intro, view
 
 AIS = {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "opus", "haiku"]},
@@ -33,25 +31,6 @@ def test_intro_interactive_picks(project):
 def test_intro_requires_claude(project):
     off = {**AIS, "claude": {"installed": True, "logged_in": False, "models": []}}
     assert intro.run_intro(project, assume_yes=True, ais=off, out=lambda *_: None) is None
-
-
-def test_render_idle_and_running(project):
-    add_card(project)
-    idle = view.render(project, 115, 36, color=False)
-    for word in ("SPLIT", "PLAN", "BUILD", "CHECKS", "REVIEW", "MERGE", "TO DO (1)", "001-thing"):
-        assert word in idle
-    root = project / ".orchestrator"
-    run = root / "runs" / "r1"
-    run.mkdir(parents=True)
-    (root / "state.json").write_text(json.dumps({"run": "r1", "card": "001-thing", "phase": "review 2"}))
-    ev = [{"ts": "2026-01-01 10:00:00", "kind": "build", "card": "001-thing", "agent": "backend", "result": "attempt 2: done"},
-          {"ts": "2026-01-01 10:00:09", "kind": "review", "card": "001-thing", "agent": "qa", "result": "APPROVED"}]
-    (run / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ev))
-    live = view.render(project, 115, 36, color=False)
-    assert "RUNNING" in live and "try 2 of 3" in live and "qa OK" in live
-    assert "MERGE" in live
-    # narrow terminals still render
-    assert "REVIEW" in view.render(project, 90, 30, color=False)
 
 
 def test_stage_status_resets_later_stages_on_retry():

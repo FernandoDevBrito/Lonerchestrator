@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import answer, config, menu, term, usage
 from .board import Board, Card
+from .safe import clean, keep_sgr
 from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
 
 W, H = 120, 34
@@ -47,6 +48,7 @@ def center(s, w):
 
 
 def clip(s, w):
+    s = clean(s)
     return s if len(s) <= w else s[: max(w - 1, 0)] + "…"
 
 
@@ -237,6 +239,7 @@ def screen_flow(x):
 
 
 def wrap(text, w, indent=""):
+    text = clean(text)
     out = []
     for para in text.splitlines():
         out += textwrap.wrap(para, w, initial_indent=indent, subsequent_indent=indent) or [""]
@@ -245,6 +248,7 @@ def wrap(text, w, indent=""):
 
 def checklist(text, w):
     """'- [x] task' lines -> '✓ task' / '○ task' with a hanging indent when wrapped."""
+    text = clean(text)
     out = []
     for ln in text.splitlines():
         m = re.match(r"\s*- \[( |x)\] (.*)", ln)
@@ -575,8 +579,9 @@ def frame(x):
     else:
         keys = " \u2190\u2192\u2191\u2193 move   tab / 1-5 views   a answer   r run   x stop   PgUp PgDn scroll   q quit"
     body = fit(SCREENS[x.ui.screen](x), CH)
-    return [pad(clip_ansi(head, W), W), pad(clip_ansi(tabs_line, W), W), paint("faint", "─" * W)] + body \
+    lines = [pad(clip_ansi(head, W), W), pad(clip_ansi(tabs_line, W), W), paint("faint", "─" * W)] + body \
         + [pad(clip_ansi(" " + x.now(), W), W), paint("faint", pad(keys, W))]
+    return [keep_sgr(ln) for ln in lines]            # last line of defense: nothing but our own color codes reaches the terminal
 
 
 def render(project, screen=0, ui=None, color=True, proc_msg=""):

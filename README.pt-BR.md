@@ -123,6 +123,7 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 | `intro [--yes]` | Detecta IAs logadas e atribui modelos/agentes (`--yes` aceita os padrões) |
 | `new "título" [--area frontend\|backend\|both]` | Cria um card numerado em `board/backlog/` |
 | `answer [card]` | Responde as perguntas de um card bloqueado no terminal e o devolve ao backlog |
+| `trust [--yes]` | Aprova o comando de CI do projeto (roda por um shell). Perguntado uma vez, na primeira abertura ou execução |
 | `run [--card id] [--base branch] [--dry-run]` | Processa o backlog sem interface |
 | `live` / `tui` | Painel em janela nova (tamanho fixo) / no terminal atual |
 | `tail <papel>` | Segue a saída de um agente (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |

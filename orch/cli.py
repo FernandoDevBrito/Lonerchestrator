@@ -8,13 +8,14 @@ import time
 from pathlib import Path
 
 from . import answer as answers
-from . import config, term
+from . import config, term, trust
 from .agents import Runner
 from .board import AREAS, Board
 from .events import Log
 from .gitops import Git
 from .intro import configured, run_intro
 from .pipeline import Pipeline
+from .safe import clean
 from .tui import H, W, run_tui
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,6 +43,7 @@ def cmd_init(a, project):
         git = Git(project)
         base = next((b for b in ("main", "master") if git.has_branch(b)), "main")
         cfg.write_text(json.dumps({"base": base, "ci": "bash scripts/ci.sh"}, indent=2) + "\n", encoding="utf-8")
+        trust.trust(project, config.load(project))              # we wrote this command ourselves
         print("write  .orchestrator/config.json")
     gi = project / ".gitignore"
     have = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
@@ -98,6 +100,29 @@ def cmd_answer(a, project):
     return 1
 
 
+def ensure_trust(project, cfg):
+    """The project's `ci` command runs through a shell: it must be approved once (a cloned repo could ship any command)."""
+    if trust.is_trusted(project, cfg):
+        return True
+    print(f"\nThis project runs this command on your machine for every card:\n\n    {clean(cfg['ci'])}\n\n(from {project / '.orchestrator' / 'config.json'})")
+    if not sys.stdin.isatty():
+        print("It is not approved yet. Read it, then run:  lonerchestrator trust")
+        return False
+    if input("Trust it? [y/N] ").strip().lower() in ("y", "yes", "s", "sim"):
+        trust.trust(project, cfg)
+        return True
+    return False
+
+
+def cmd_trust(a, project):
+    cfg = config.load(project)
+    if a.yes:
+        trust.trust(project, cfg)
+        print(f"trusted: {clean(cfg['ci'])}")
+        return 0
+    return 0 if ensure_trust(project, cfg) else 1
+
+
 def cmd_run(a, project):
     cfg = config.load(project)
     base = a.base or cfg["base"]
@@ -109,6 +134,8 @@ def cmd_run(a, project):
                 print(f"[dry-run] {c.id} | area={c.area} agent={cfg['agents'].get(c.area)} | card/{c.id} from {base} | "
                       f"{'INVALID: ' + '; '.join(bad) if bad else 'ok'} | reviewers: {', '.join(r['name'] for r in cfg['reviewers'])}")
         return 0
+    if not ensure_trust(project, cfg):
+        return 1
     if not Git(project).clean():
         print("working tree not clean; commit or stash first")
         return 1
@@ -119,6 +146,8 @@ def cmd_run(a, project):
 
 
 def cmd_tui(a, project):
+    if not ensure_trust(project, config.load(project)):
+        return 1
     run_tui(project, a.base or config.load(project)["base"], autorun=a.run, tab=a.tab)
     return 0
 
@@ -127,6 +156,8 @@ def cmd_live(a, project):
     """Open the TUI in a NEW terminal window of exactly the TUI size (Windows Terminal, macOS Terminal, common Linux terminals)."""
     if not (project / "board").exists():
         print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
+        return 1
+    if not ensure_trust(project, config.load(project)):
         return 1
     if a.setup or not configured(project):
         if run_intro(project, assume_yes=not sys.stdin.isatty()) is None:
@@ -160,7 +191,7 @@ def cmd_tail(a, project):
                         h.seek(pos)
                         data = h.read()
                     pos += len(data)
-                    sys.stdout.write(f"\x1b[{c}m{data.decode('utf-8', 'replace')}\x1b[0m")
+                    sys.stdout.write(f"\x1b[{c}m{clean(data.decode('utf-8', 'replace'))}\x1b[0m")
                     sys.stdout.flush()
             time.sleep(0.3)
     except KeyboardInterrupt:
@@ -189,6 +220,8 @@ def main(argv=None):
     p = sub.add_parser("new", help="create a card in board/backlog")
     p.add_argument("title")
     p.add_argument("--area", choices=AREAS, default="backend")
+    p = sub.add_parser("trust", help="approve the project's CI command (it runs through a shell)")
+    p.add_argument("--yes", action="store_true", help="approve without asking")
     p = sub.add_parser("answer", help="answer the questions of a blocked card and send it back to the backlog")
     p.add_argument("card", nargs="?", help="card id or its number, e.g. 002 (optional when only one card is blocked)")
     p = sub.add_parser("run", help="process the backlog (headless)")

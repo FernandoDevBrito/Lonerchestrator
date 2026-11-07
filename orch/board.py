@@ -4,6 +4,8 @@ import shutil
 import time
 from pathlib import Path
 
+from .safe import clean
+
 STATES = ("backlog", "doing", "review", "done", "blocked")
 AREAS = ("frontend", "backend", "both")
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -22,7 +24,7 @@ class Card:
 
     def get(self, key, default=""):
         m = re.search(rf"^{key}:[ \t]*(.*)$", self.text(), re.MULTILINE)
-        return re.sub(r"\s+#.*$", "", m.group(1)).strip() if m else default
+        return clean(re.sub(r"\s+#.*$", "", m.group(1)).strip()) if m else default
 
     def set(self, key, value):
         t = self.text()
@@ -42,7 +44,7 @@ class Card:
 
     def section(self, name):
         m = re.search(rf"^## +{re.escape(name)}[^\n]*\n(.*?)(?=^## |\Z)", self.text(), re.MULTILINE | re.DOTALL)
-        return _COMMENT.sub("", m.group(1)).strip() if m else ""
+        return clean(_COMMENT.sub("", m.group(1)).strip()) if m else ""
 
     def set_section(self, name, text):
         """Replace the body of '## <name>...' (empty text clears it); insert the section before the status log when missing."""

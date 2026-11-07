@@ -4,6 +4,8 @@ import threading
 import time
 from pathlib import Path
 
+from .safe import clean
+
 STREAMS = ("pipeline", "planner", "builder", "qa", "cross", "retro")
 ALIAS = {"splitter": "planner"}   # splitter shares the planner pane
 
@@ -32,7 +34,7 @@ class Log:
             with (self.streams_dir / f"{stream}.log").open("a", encoding="utf-8") as f:
                 f.write(text if text.endswith("\n") else text + "\n")
             if stream == "pipeline" and self.echo:
-                print(text.rstrip(), flush=True)
+                print(clean(text.rstrip()), flush=True)
 
     def event(self, kind, card="-", agent="-", result="", secs=0.0, **extra):
         rec = {"ts": time.strftime("%F %T"), "kind": kind, "card": card, "agent": agent, "result": result, "secs": round(secs, 1), **extra}

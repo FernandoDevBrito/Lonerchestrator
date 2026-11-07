@@ -121,6 +121,7 @@ Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `a` answer 
 | `intro [--yes]` | Detect logged-in AIs and assign models/agents (`--yes` accepts the defaults) |
 | `new "title" [--area frontend\|backend\|both]` | Create a numbered card in `board/backlog/` |
 | `answer [card]` | Answer a blocked card's questions in the terminal and send it back to the backlog |
+| `trust [--yes]` | Approve the project's CI command (it runs through a shell). Asked once, the first time you open or run a project |
 | `run [--card id] [--base branch] [--dry-run]` | Process the backlog headless |
 | `live` / `tui` `[--tab 1-5]` | Panel in a new window of the right size / in the current terminal, optionally opened on a tab |
 | `tail <role>` | Follow one agent's output (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |

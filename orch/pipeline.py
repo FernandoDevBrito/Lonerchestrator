@@ -11,11 +11,36 @@ from .board import Board
 from .gitops import Git
 
 
+class Tampered(Exception):
+    """An agent changed .git/config or a git hook: anything git runs from now on could execute attacker-chosen code."""
+
+
+class _Guarded:
+    """Wraps the agent runner: .git/config and hooks must be identical before and after every agent call."""
+
+    def __init__(self, runner, git):
+        self.runner, self.git = runner, git
+
+    def _call(self, fn, *a, **kw):
+        before = self.git.internals()
+        out = fn(*a, **kw)
+        if self.git.internals() != before:
+            raise Tampered("an agent changed .git/config or a git hook")
+        return out
+
+    def claude(self, *a, **kw):
+        return self._call(self.runner.claude, *a, **kw)
+
+    def agy(self, *a, **kw):
+        return self._call(self.runner.agy, *a, **kw)
+
+
 class Pipeline:
     def __init__(self, project, cfg, log, runner, base=None):
-        self.p, self.cfg, self.log, self.run_ = project, cfg, log, runner
+        self.p, self.cfg, self.log = project, cfg, log
         self.base = base or cfg["base"]
-        self.git, self.board = Git(project), Board(project)
+        self.git, self.board = Git(project, hooks=cfg.get("git_hooks", False)), Board(project)
+        self.run_ = _Guarded(runner, self.git)
 
     def _m(self, role):
         return self.cfg["roles"][role].get("model")
@@ -49,6 +74,12 @@ class Pipeline:
             seen.add(card.id)
             try:
                 self.process(card)
+            except Tampered as e:                       # no git command may run after this: only plain file operations
+                self.log.event("abort", card.id, result=f"SECURITY: {e}")
+                self.log.state(card=None, phase="aborted")
+                card.move("blocked")
+                card.log(f"BLOCKED: {e}. Inspect .git/config and .git/hooks before running again")
+                return 2
             except (AuthError, RateLimitExhausted) as e:
                 card.move("backlog")
                 self._park(card.id, f"card/{card.id}")
@@ -126,7 +157,8 @@ class Pipeline:
             # CI
             self.log.state(card=cid, phase=f"ci {n}")
             t = time.time()
-            ci = subprocess.run(g["ci"], shell=True, cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            ci = subprocess.run(g["ci"], shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
+                                 cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
             ci_out = ci.stdout + ci.stderr
             self.log.artifact(cid, f"ci{n}.txt", ci_out)
             self.log.say("pipeline", "\n".join("   | " + ln for ln in ci_out.splitlines()[-2:]))

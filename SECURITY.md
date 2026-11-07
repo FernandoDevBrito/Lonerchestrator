@@ -2,29 +2,52 @@
 
 ## What this tool does to your machine
 
-lonerchestrator launches AI coding agents (Claude Code, optionally the Antigravity CLI) **with permission to edit files and run a limited set of commands in your project**. Treat it like giving a capable but fallible contractor commit-level access to that repository.
+lonerchestrator launches AI coding agents (Claude Code, optionally the Antigravity CLI) **with permission to edit files and run a limited set of commands in your project**, and it runs your project's CI command through a shell. Treat it like giving a capable but fallible contractor commit-level access to that repository.
 
-## Safety model
+## What is trusted and what is not
 
-Layers, from strongest to weakest:
+| Trusted | Untrusted (can be hostile) |
+|---|---|
+| You, and the code of this tool | Card text, repository files, dependencies, web content an agent reads |
+| Your project's `ci` command **after you approved it** | A `.orchestrator/config.json` that came with a repository you cloned |
+| The `claude` / `agy` CLIs | Everything an agent writes: files, plans, questions, log output |
 
-1. **Code-enforced guardrails** (not prompts): protected paths, diff size limits, deleted-test detection, secret scanning on the diff, clean-tree requirement, one branch per card, orchestrator-owned git (agents cannot commit, merge, push or switch branches).
-2. **Per-project permissions**: the generated `.claude/settings.json` allows only test/lint/build and read-only git commands, and denies `rm -rf`, `git push`, `git reset --hard`, `git clean`, `curl`, `wget` and edits to `scripts/`, `.claude/`, `CLAUDE.md`, `GEMINI.md`. Claude Code only honors it after you trust the folder.
-3. **Independent review**: two reviewers that never see the builder's reasoning. This catches mistakes, not malice.
-4. **Human gates**: nothing is deployed; unclear or repeatedly failing cards stop and wait for you; approved work lands on a base branch you choose (use a scratch branch to keep `main` untouched).
+## Safety layers
 
-## Known limits
+1. **Code-enforced guardrails** (not prompts): protected paths, diff size limits, deleted-test detection, secret scan on the diff, clean-tree requirement, one branch per card.
+2. **The orchestrator owns git.** Agents cannot commit, merge, push or switch branches (denied in the generated permissions). Every git call also runs with hooks and `core.fsmonitor` disabled, and diffs never use external/textconv drivers. Your own hooks are skipped on the orchestrator's commits unless you set `"git_hooks": true`.
+3. **Tamper detection for `.git`.** `.git/config` and every git hook are fingerprinted before and after every agent call. If an agent changed one, the run aborts at once, before any further git command, and the card goes to Needs you.
+4. **Minimal agent permissions.** The generated `.claude/settings.json` allows only the test/lint/compile commands and read-only git, and denies interpreters (`python -c`, `bash -c`, `powershell`, ...), network tools, `git config/add/commit/push`, and edits to `scripts/`, `.claude/`, `.git/`, `.orchestrator/`, `CLAUDE.md`, `GEMINI.md`. Claude Code only honors it after you trust the folder.
+5. **Trust gate for the CI command.** `ci` runs through a shell, so each project must be approved once per exact command (`lonerchestrator trust`, or the prompt the first time you open the panel or run it). A changed command needs approval again. `init` trusts only the config it wrote itself, never one that shipped with a cloned repository.
+6. **Terminal safety.** Anything that comes from cards, files or agent output is stripped of control characters (ESC, BEL, CR, C1, bidi overrides) before it reaches your screen, and the panel lets only its own color codes through. A card cannot change your window title, clear the screen, spoof the UI or write your clipboard.
+7. **Independent review and human gates.** Two reviewers that never see the builder's reasoning. Nothing is deployed; unclear or repeatedly failing cards stop and wait for you; approved work lands on a base branch you choose.
 
-- Agents can still run any command your allow-list permits (for example your test suite), and test code is code. A malicious or prompt-injected card, dependency or file can make tests do harmful things. **Only run cards and repositories you trust.**
-- The secret scan is pattern-based and will miss some secrets. Do not rely on it as your only control.
-- Card text, repository files and web content read by agents are untrusted input and can contain prompt injection.
-- Do not point it at a repository that contains production credentials in the working tree.
+## Findings from the security review (all fixed, each pinned by a test)
+
+| Finding | Severity | Fix |
+|---|---|---|
+| Moving a protected file (`scripts/ci.sh` to another folder) raised no guardrail violation: git hides the old path on a rename | High | Diffs use `--no-renames`, so both paths are checked |
+| Card text and agent output reached the terminal raw (escape sequences, OSC, bidi override) | High | Sanitized at the source and again on every screen line |
+| An agent could plant a git hook or change `.git/config` (`core.fsmonitor`) and get code run by the orchestrator's own git calls | High | Hooks/fsmonitor disabled, `.git` fingerprinted around every agent call, `.git/**` denied |
+| `ci` from a cloned repo's config ran through a shell with no approval | High | Per-project trust gate |
+| Generated permissions allowed a bare `python`, which bypassed the deny-list, plus `agy` and the app entry point | Medium | Allow-list reduced to explicit commands; interpreter flags denied |
+| CI workflow ran with the default token permissions | Low | `permissions: contents: read` |
+
+Secret scan of the full git history: nothing found. Static analysis (bandit): one high item, the intentional `shell=True` for the CI command, now behind the trust gate; the rest are low-severity notes about calling `git`/CLIs with argument lists (no shell).
+
+## Known limits (what this does NOT protect you from)
+
+- **Tests and project code are code.** The allowed `pytest`/CI commands run whatever the project contains; a hostile card, dependency or test file can make them do harmful things. Only run cards and repositories you trust.
+- **Prompt injection is not solved.** Cards, repository files and web pages read by agents can steer them, within the permissions above. The guardrails limit the damage; they cannot read intent.
+- **Ignored files are invisible to the diff guardrails.** An agent can still write inside the project to paths that git ignores (for example a virtual environment). Do not point the tool at a repository that holds production credentials in its working tree.
+- The secret scan is pattern-based and misses some secrets. It is a safety net, not a control.
+- On Windows, the new-window launcher passes the project path to `cmd /k`; a project folder whose name contains shell metacharacters (`&`, `^`) should be renamed.
 - Review the diff before pushing anything merged by the orchestrator. It never pushes for you.
 
 ## Recommendations
 
 - Work on a feature/scratch base branch (`"base"` in `.orchestrator/config.json`) and review before merging to `main`.
-- Keep the project's `.claude/settings.json` deny-list; add to it rather than removing from it.
+- Read the `ci` command before approving it. Keep the deny-list; add to it rather than removing from it.
 - Run on a machine or account without access to production secrets.
 
 ## Reporting a vulnerability

@@ -1,117 +1,139 @@
 # lonerchestrator
 
-Orquestrador local de agentes de IA. Você escreve **cards** de demanda; agentes planejam, implementam, revisam e corrigem sozinhos, e só param quando o card é aprovado ou precisa de você.
+[Português](README.pt-BR.md)
 
-Roda 100% na sua máquina, usando as assinaturas que você já tem logadas (**Claude Code** e **Antigravity/Gemini**). Sem chaves de API, sem GitHub Actions, sem servidor.
+A **local multi-agent orchestrator** for AI coding agents. You write small *cards* describing what you want; agents plan, implement, review and fix them on their own, and only stop when a card is approved or needs a human.
+
+It runs entirely on your machine, on the AI subscriptions you are already logged in to (**Claude Code** and, optionally, the **Antigravity CLI** for Gemini models). No API keys, no hosted service, no GitHub Actions, no server.
 
 ```
  card ─▶ SPLIT ─▶ PLAN ─▶ BUILD ─▶ CHECKS ─▶ REVIEW ─▶ MERGE
           │         │        │         │         │         │
-      splitter   planner  builder  regras+CI   qa + cross   git + retro
+      splitter   planner  builder  rules + CI  qa + cross  git + retro
 ```
 
-| Etapa | Quem | O que faz |
+| Stage | Who | What happens |
 |---|---|---|
-| SPLIT | `splitter` | Mantém o card inteiro ou quebra um card grande em cards pequenos (3+ entregas independentes) |
-| PLAN | `planner` | Escreve o plano e a lista de tarefas; se o card for vago, **para e pergunta** (nunca chuta) |
-| BUILD | `builder` | Implementa as tarefas e escreve os testes |
-| CHECKS | código | Guardrails (arquivos protegidos, tamanho, segredos, testes apagados) + `scripts/ci.sh` |
-| REVIEW | `qa` + `cross` | Dois revisores independentes, **em modelos diferentes**, em paralelo. Os dois precisam aprovar |
-| MERGE | git + `retro` | Commit, merge na branch base, `retro` registra as lições |
+| SPLIT | `splitter` agent | Keeps the card whole, or breaks a big one (3+ independent deliverables) into small child cards |
+| PLAN | `planner` agent | Writes a plan and a task checklist. If the card is vague it **stops and asks**, it never guesses |
+| BUILD | `builder` agent | Implements the tasks and writes the tests |
+| CHECKS | code, not prompts | Guardrails (protected files, diff size, secrets, deleted tests) + your `scripts/ci.sh` |
+| REVIEW | `qa` + `cross` | Two independent reviewers, ideally on **different models**, in parallel. Both must approve |
+| MERGE | git + `retro` agent | Commit, merge into the base branch, record lessons learned |
 
-Regras de ouro: **quem faz nunca avalia** (os revisores só veem o card, o diff e a saída dos testes, nunca o raciocínio de quem implementou), **3 tentativas** por card e depois ele vai para `NEEDS YOU`, e **nunca faz deploy**.
+Core rules: **whoever builds never reviews** (reviewers only see the card, the diff and the test output, never the builder's reasoning); **3 attempts** per card, then it goes to `NEEDS YOU`; it **never deploys**.
 
-## Requisitos
+> ⚠️ **Read [SECURITY.md](SECURITY.md) first.** The agents edit files and run commands on your machine. Guardrails and a deny-list reduce the risk; they do not remove it. Use it on projects under version control, with a clean working tree.
 
-- Windows 10/11, PowerShell 5.1+
-- Python 3.10+ e git
-- [Claude Code](https://claude.com/claude-code) logado (`claude`), **obrigatório**
-- [Antigravity CLI](https://antigravity.google) logado (`agy`), para o revisor `cross` com modelos Gemini (opcional se você usar dois modelos Claude)
-- Windows Terminal (`wt`), para a janela do `lonerchestrator live`
+## Requirements
 
-> O `gemini` CLI antigo não funciona mais em contas individuais; o `agy` é o substituto.
+| | |
+|---|---|
+| Python | 3.10+ (standard library only, no dependencies) |
+| git | any recent version |
+| [Claude Code](https://claude.com/claude-code) | installed **and logged in** (`claude`). Required: planner, builder, retro and the `qa` reviewer run on it |
+| [Antigravity CLI](https://antigravity.google) `agy` | optional. Gives the `cross` reviewer a Gemini model (a different model family catches different mistakes). Without it, `cross` is a second Claude model |
+| bash | to run your project's `scripts/ci.sh` (Git Bash on Windows) |
 
-## Instalação
+You need your own Claude Code subscription/login. Usage counts against its limits; the orchestrator waits and retries on rate limits.
 
-```powershell
-cd D:\Github\orchestrator
-.\install.ps1            # confere requisitos, instala o pacote, garante o comando no PATH
-.\install.ps1 -DryRun    # só mostra o que faria
+### Platforms
+
+| | Panel (`tui`) | New window (`live`) | Notes |
+|---|---|---|---|
+| Windows 10/11 | ✅ used daily | ✅ Windows Terminal (`wt`) | reference platform |
+| macOS | ✅ implemented, CI-tested | ⚠️ Terminal.app via `osascript`, best effort | the panel resizes itself with the xterm resize sequence |
+| Linux | ✅ implemented, CI-tested | ⚠️ gnome-terminal, xfce4-terminal, kitty, alacritty, konsole, xterm | needs a graphical session; over SSH use `tui` |
+
+`lonerchestrator tui` works in any terminal of at least **120×34**. Bug reports from macOS/Linux users are very welcome.
+
+## Install
+
+```bash
+git clone <repo-url> lonerchestrator && cd lonerchestrator
 ```
 
-O que o script faz: confere Python/git (e avisa o que falta de claude/agy/wt), roda `pip install -e` (modo editável, então um `git pull` já atualiza o comando) e, se a pasta de scripts do Python não estiver no PATH, adiciona ao PATH do **usuário**. Não mexe em mais nada do Windows.
-
-Manualmente, é só: `python -m pip install -e D:\Github\orchestrator`
-
-Abra um terminal **novo** e teste:
+**Windows (PowerShell):**
 
 ```powershell
+.\install.ps1            # checks requirements, installs the package, makes sure the command is on PATH
+.\install.ps1 -DryRun    # show what it would do
+```
+
+**macOS / Linux:**
+
+```bash
+./install.sh             # uses pipx if available, otherwise pip --user
+./install.sh --dry-run
+```
+
+Or by hand: `pipx install -e .` / `python -m pip install -e .`. It is an editable install, so `git pull` updates the command. Open a **new terminal** and check:
+
+```bash
 lonerchestrator --help
 ```
 
-Desinstalar: `.\install.ps1 -Uninstall` (seus projetos, cards e memória não são tocados).
+Uninstall: `.\install.ps1 -Uninstall` or `./install.sh --uninstall` (your projects, cards and memory are never touched).
 
-## Começando em um projeto
+## Quick start
 
-```powershell
-cd D:\Github\meu_projeto
-claude                       # uma vez: aceite o diálogo de confiança da pasta
-lonerchestrator init         # instala board, agentes, guardrails, context/ e faz a introdução
+```bash
+cd your-project            # a git repository, clean working tree
+claude                     # once: accept the folder trust dialog, then exit
+lonerchestrator init       # installs board, agents, guardrails, context/ and runs the introduction
 ```
 
-1. **Introdução** (`init` ou `lonerchestrator intro`): detecta em quais IAs você está logado, deixa escolher o modelo de cada papel, os dois revisores e qual agente cuida de cada área.
-2. Preencha `context/project.md` (stack, como rodar testes, convenções) e ajuste `scripts/ci.sh` para o seu projeto.
-3. Crie um card: `lonerchestrator new "Adicionar login"`, abra o arquivo em `board/backlog/` e preencha objetivo e critérios **testáveis**.
-4. Abra o painel: `lonerchestrator`, e aperte `r`.
+1. **Introduction** (`init`, or `lonerchestrator intro` any time): detects which AIs you are logged in to and lets you choose the model for each role, the two reviewers, and which agent handles each area.
+2. Fill in `context/project.md` (stack, how to run tests, conventions) and adapt `scripts/ci.sh` to your project.
+3. `lonerchestrator new "Add login"`, then open the card in `board/backlog/` and write a goal and **testable** acceptance criteria.
+4. `lonerchestrator` opens the panel. Press `r` to run.
 
-## O painel
+## The panel
 
-`lonerchestrator` (sem argumentos) abre uma janela do Windows Terminal já em **120×34**, com quatro abas:
+Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** with four tabs:
 
-| Aba | Mostra |
+| Tab | Shows |
 |---|---|
-| **1 Board** | Colunas TO DO / DOING / DONE / NEEDS YOU com os cards |
-| **2 Flow** | O pipeline estilo n8n: nós, sub-nós (modelo, memória, agente, regras) e os últimos eventos |
-| **3 Planner** | Card selecionado: objetivo, critérios, plano, tarefas (`[ ]`/`[x]`), perguntas pra você e histórico |
-| **4 Agents** | O que cada agente está fazendo agora, em seis painéis alinhados |
+| **1 Board** | TO DO / DOING / DONE / NEEDS YOU columns with your cards |
+| **2 Flow** | The pipeline as connected nodes, with sub-nodes (model, memory, agent, rules) and the latest events |
+| **3 Planner** | The selected card: goal, criteria, plan, tasks (`[ ]`/`[x]`), questions for you, history |
+| **4 Agents** | What each agent is doing right now, in six aligned live panes |
 
-Teclas: `←→↑↓` mover/selecionar · `1`-`4` ou `Tab` trocar de aba · `PgUp`/`PgDn` rolar · `r` rodar o pipeline · `x` parar · `q` sair.
+Keys: `←→↑↓` move/select · `1`–`4` or `Tab` switch tab · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
 
-Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 120×34).
+## Commands
 
-## Comandos
-
-| Comando | Faz |
+| Command | Does |
 |---|---|
-| `lonerchestrator` | Abre o painel do projeto da pasta atual (= `live`) |
-| `init [--force]` | Prepara o projeto (não sobrescreve arquivos existentes sem `--force`) |
-| `intro [--yes]` | Detecta IAs logadas e atribui modelos/agentes (`--yes` aceita os padrões) |
-| `new "título" [--area frontend\|backend\|both]` | Cria um card numerado em `board/backlog/` |
-| `run [--card id] [--base branch] [--dry-run]` | Processa o backlog sem interface |
-| `live` / `tui` | Painel em janela nova (tamanho fixo) / no terminal atual |
-| `tail <papel>` | Segue a saída de um agente (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
-| `status` | Contagem do board e últimos eventos |
-| `-C <pasta>` | (antes de qualquer comando) aponta outro projeto |
+| `lonerchestrator` | Open the panel for the project in the current folder (same as `live`) |
+| `init [--force]` | Set up a project (never overwrites existing files without `--force`) |
+| `intro [--yes]` | Detect logged-in AIs and assign models/agents (`--yes` accepts the defaults) |
+| `new "title" [--area frontend\|backend\|both]` | Create a numbered card in `board/backlog/` |
+| `run [--card id] [--base branch] [--dry-run]` | Process the backlog headless |
+| `live` / `tui` | Panel in a new window of the right size / in the current terminal |
+| `tail <role>` | Follow one agent's output (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
+| `status` | Board counts and latest events |
+| `-C <dir>` | (before any command) target another project |
 
-## Quando o card precisa de você
+## When a card needs you
 
-Cards vagos ("deixa mais rápido", "relatório bonito") **não são implementados**: vão para `NEEDS YOU` com perguntas numeradas na seção `## Blockers / questions`. Responda editando o card, mova o arquivo de `board/blocked/` de volta para `board/backlog/` e rode de novo. Cards que estouram as 3 tentativas também vão para lá, com o trabalho parcial guardado na branch `card/<id>`.
+Vague cards ("make it faster", "a nice report") are **not implemented**. They go to `NEEDS YOU` with numbered questions under `## Blockers / questions`. Answer by editing the card, move the file from `board/blocked/` back to `board/backlog/`, and run again. Cards that use all 3 attempts end up there too, with the partial work kept on the branch `card/<id>`.
 
-## Guardrails e segurança
+## Guardrails
 
-Verificados por **código**, não por prompt, antes dos testes:
+Checked by **code**, not by prompts, before CI runs:
 
-- arquivos protegidos intocáveis (`scripts/**`, `.claude/**`, `CLAUDE.md`, `GEMINI.md`, `.orchestrator/**`)
-- limite de arquivos e linhas por card (padrão 25 arquivos / 1000 linhas): card grande demais deve ser quebrado
-- testes apagados e segredos no diff (chaves, tokens, senhas) são rejeitados
-- uma branch por card (`card/<id>`); nada é mergeado sem os dois revisores aprovarem e o CI passar
-- agentes não fazem commit, merge, push nem trocam de branch: o orquestrador é dono do git
-- rate limit/cota: espera com backoff e retoma; login expirado aborta sem perder o card
-- `.claude/settings.json` do projeto libera só o necessário e nega `rm -rf`, `git push`, `git reset --hard` etc.
+- protected paths cannot change (`scripts/**`, `.claude/**`, `CLAUDE.md`, `GEMINI.md`, `.orchestrator/**`)
+- diff size limits per card (default 25 files / 1000 lines): too-big cards must be split
+- deleted tests and secrets in the diff (keys, tokens, passwords) are rejected
+- one branch per card (`card/<id>`); nothing merges without both reviewers approving and CI passing
+- agents never commit, merge, push or switch branches: the orchestrator owns git
+- rate limits: waits with backoff and resumes; an expired login aborts without losing the card
+- the project's `.claude/settings.json` allows only what is needed and denies `rm -rf`, `git push`, `git reset --hard`, etc.
 
-## Configuração
+## Configuration
 
-`.orchestrator/config.json` do projeto (só o que você quiser mudar; o resto vem do padrão):
+`.orchestrator/config.json` in your project (only what you want to change; the rest comes from defaults):
 
 ```json
 {
@@ -123,48 +145,50 @@ Verificados por **código**, não por prompt, antes dos testes:
   "roles": { "planner": { "cli": "claude", "model": "sonnet" } },
   "reviewers": [
     { "name": "qa",    "kind": "claude", "agent": "qa", "model": "sonnet" },
-    { "name": "cross", "kind": "agy",    "model": "gemini-4-argon-high" }
+    { "name": "cross", "kind": "agy",    "model": "<a model from `agy models`>" }
   ],
   "guardrails": { "max_files": 25, "max_diff_lines": 1000 }
 }
 ```
 
-`base` é a branch que recebe os cards aprovados. Use outra (ex.: `agents-setup`) para a `main` ficar intocada até você decidir.
+`base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide.
 
-## O que cada projeto ganha
+## What each project gets
 
 ```
-meu_projeto/
-├── CLAUDE.md  GEMINI.md          regras do orquestrador e do revisor
-├── board/{backlog,doing,review,done,blocked}/   cards (.md); fica local, no .gitignore
-├── context/{project,decisions,history}.md       contexto lido pelos agentes
-├── memory/{backend,frontend,qa}.md              lições aprendidas por área (a retro cuida)
-├── .claude/{agents,skills,settings.json}        agentes e permissões
-├── scripts/ci.sh                                lint + testes + build do projeto
-└── .orchestrator/                               config, logs por execução, streams
+your-project/
+├── CLAUDE.md  GEMINI.md          orchestrator and reviewer rules
+├── board/{backlog,doing,review,done,blocked}/   cards (.md); local, gitignored
+├── context/{project,decisions,history}.md       context the agents read
+├── memory/{backend,frontend,qa}.md              lessons learned per area (the retro agent maintains it)
+├── .claude/{agents,skills,settings.json}        agents and permissions
+├── scripts/ci.sh                                your lint + tests + build
+└── .orchestrator/                               config, per-run logs, live streams
 ```
 
-Logs: `board/_log.md` (tabela legível), `.orchestrator/runs/<execução>/events.jsonl` (estruturado) e, por card, o texto completo de cada agente.
+Logs: `board/_log.md` (readable table), `.orchestrator/runs/<run>/events.jsonl` (structured) and, per card, the full text of every agent.
 
-## Problemas comuns
+## Troubleshooting
 
-| Sintoma | Causa / solução |
+| Symptom | Fix |
 |---|---|
-| `Failed to authenticate` / OAuth expirado | Rode `claude` (ou `agy`) uma vez e faça login |
-| Permissões do `settings.json` ignoradas | Pasta não confiável: rode `claude` dentro dela e aceite o diálogo (confiar na pasta-pai não vale) |
-| "working tree not clean" | Faça commit ou stash antes de rodar; o orquestrador exige árvore limpa |
-| "Window too small" | O painel precisa de 120×34; use `lonerchestrator live` ou aumente a janela |
-| `gemini` pede para migrar | Use o `agy` (já é o padrão do revisor `cross`) |
-| Pipeline não inicia pelo painel | Veja `.orchestrator/run.out` |
+| `Failed to authenticate` / OAuth expired | Run `claude` (or `agy`) once and log in |
+| Permissions in `settings.json` ignored | Folder not trusted: run `claude` inside it and accept the dialog (trusting the parent folder is not enough) |
+| "working tree not clean" | Commit or stash first; the orchestrator requires a clean tree |
+| "Window too small" | The panel needs 120×34: use `lonerchestrator live` or enlarge the window |
+| `gemini` CLI asks you to migrate | Use `agy` (the Antigravity CLI) for Gemini models |
+| Pipeline does not start from the panel | Look at `.orchestrator/run.out` |
 
-## Desenvolvimento
+## Development
 
-```powershell
-cd D:\Github\orchestrator
-python -m venv .venv
-.venv\Scripts\python -m pip install -e . pytest ruff
-.venv\Scripts\python -m ruff check .
-.venv\Scripts\python -m pytest -q        # 33 testes: pipeline com agentes falsos + git real, guardrails, TUI
+```bash
+python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+python -m pip install -e . pytest ruff
+ruff check . && pytest -q
 ```
 
-Só biblioteca padrão, sem dependências. Módulos em `orch/`: `pipeline` (o laço), `agents` (execução dos CLIs, backoff), `guardrails`, `board` (cards), `gitops`, `events` (logs), `tui`/`view` (painel), `intro`, `config`, `cli`. Os templates copiados pelo `init` ficam em `orch/templates/` (`dot-claude/` vira `.claude/`).
+Standard library only. Modules in `orch/`: `pipeline` (the loop), `agents` (CLI runner, backoff), `guardrails`, `board` (cards), `gitops`, `events` (logs), `tui`/`view` (panel), `term` (keyboard/process/window per OS), `intro`, `config`, `cli`. Templates copied by `init` live in `orch/templates/` (`dot-claude/` becomes `.claude/`). See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

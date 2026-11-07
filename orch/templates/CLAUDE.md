@@ -1,11 +1,11 @@
 # Orchestrator rules + project context
 
-I (the user) write demand cards in `board/backlog/` (`orch new "title"`). Agents plan, implement, review and fix them and stop only when a card is approved or needs me. Everything runs locally on my Claude Code + Antigravity (Gemini) subscriptions: no API keys, no CI service, no servers.
+I (the user) write demand cards in `board/backlog/` (`lonerchestrator new "title"`). Agents plan, implement, review and fix them and stop only when a card is approved or needs me. Everything runs locally on my Claude Code + Antigravity (Gemini) subscriptions: no API keys, no CI service, no servers.
 
 ## Project context
 Read `context/project.md` (stack, conventions, how to run things) and `context/decisions.md` (why things are the way they are). Keep them current; `context/history.md` is appended by the orchestrator per finished card.
 
-## Flow (`orch run`, live view: `orch live`)
+## Flow (`lonerchestrator run`, live view: `lonerchestrator live`)
 For each card in `board/backlog/` (priority = filename order):
 1. Validate the card structure. SPLIT: the `splitter` agent keeps a normal card whole, or breaks a big one into small child cards (queued in the backlog, run next). Then move to `doing/`, branch `card/<id>` from the base branch.
 2. PLAN: area agent writes `## Plan` and a `## Tasks` checklist (each task tied to a criterion and its check). Vague or missing info → `blocked/` with specific questions. Never guess.

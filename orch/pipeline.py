@@ -27,7 +27,7 @@ class Pipeline:
         for r in self.cfg["reviewers"]:
             exe = {"claude": "claude", "agy": "agy"}[r["kind"]]
             if r.get("required", True) and not shutil.which(exe):
-                raise SystemExit(f"reviewer '{r['name']}' needs the '{exe}' CLI (or set required=false in config)")
+                raise SystemExit(f"reviewer '{r['name']}' needs the '{exe}' CLI. Install it, or run `lonerchestrator intro` to pick another reviewer")
         if not shutil.which("claude"):
             raise SystemExit("claude CLI not found")
 

@@ -5,10 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lonerchestrator"
 version = "0.1.0"
-description = "Local multi-agent orchestrator (Claude Code + Antigravity/Gemini): board of cards -> plan -> build -> guardrails -> CI -> independent review -> merge"
+description = "Local multi-agent orchestrator for AI coding agents (Claude Code + Antigravity/Gemini): cards -> plan -> build -> guardrails -> CI -> independent review -> merge"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []   # stdlib only
+license = { text = "MIT" }
+keywords = ["ai", "agents", "claude-code", "orchestrator", "tui", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+]
+dependencies = []   # standard library only
 
 [project.scripts]
 lonerchestrator = "orch.cli:main"

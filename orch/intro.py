@@ -67,7 +67,7 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     (project / ".orchestrator").mkdir(exist_ok=True)
     (project / ".orchestrator" / "ais.json").write_text(json.dumps({"ts": time.strftime("%F %T"), "ais": ais}, indent=2), encoding="utf-8")
     if not ais["claude"]["logged_in"]:
-        out("\nClaude Code is required (planner, builder, retro run on it). Run `claude`, log in, then `orch intro` again.")
+        out("\nClaude Code is required (planner, builder, retro run on it). Run `claude`, log in, then `lonerchestrator intro` again.")
         return None
 
     claude_opts = [(f"claude / {m}", m) for m in CLAUDE_MODELS]
@@ -85,8 +85,9 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
         cur = (r["kind"], r.get("model"))
         opts = all_opts
         i = default_idx(opts, cur)
-        if slot == "cross" and cur not in [v for _, v in opts]:   # configured model not available here: prefer a non-claude one
-            i = next((k for k, (_, v) in enumerate(opts) if v[0] == "agy"), 0)
+        first_agy = next((k for k, (_, v) in enumerate(opts) if v[0] == "agy"), None)
+        if slot == "cross" and first_agy is not None and (cur[0] == "claude" or cur not in [v for _, v in opts]):
+            i = first_agy              # a different model family catches different mistakes
         kind, model = opts[i][1] if assume_yes else _pick(f"reviewer '{slot}' (independent of the builder, should be a DIFFERENT model): which AI?", opts, i, ask, out)
         new["reviewers"].append({"name": slot, "kind": kind, "model": model, "required": True, **({"agent": "qa"} if kind == "claude" else {})})
     a, b = new["reviewers"]

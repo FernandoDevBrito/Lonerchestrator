@@ -3,13 +3,12 @@ render() is pure (files in, string out) so every screen is testable for exact al
 import os
 import re
 import shutil
-import subprocess
 import sys
 import textwrap
 import time
 from pathlib import Path
 
-from . import config
+from . import config, term
 from .board import Board, Card
 from .view import NOW, PHASE_IDX, _json, _sentence, load_events, reviewer_status, stage_status
 
@@ -111,7 +110,7 @@ class Ctx:
         if self.cur is None:
             blocked = self.items["blocked"]
             return (paint("fail", f"NEEDS YOU: {blocked[-1].id} - answer its questions and move it back to backlog") if blocked
-                    else "idle - add a card with `orch new` and press r to run")
+                    else "idle - add a card with `lonerchestrator new` and press r to run")
         if self.cur == PHASE_IDX["review"]:
             return "reviewing: " + ", ".join(f"{k} {'OK' if v == 'ok' else 'NO' if v == 'fail' else 'thinking'}" for k, v in self.revs.items())
         return NOW.get(self.phase.split()[0], self.phase) + (f" (try {self.tries()} of {self.cfg['max_attempts']})" if self.tries() else "")
@@ -299,7 +298,7 @@ SCREENS = [screen_board, screen_flow, screen_planner, screen_agents]
 # --------------------------------------------------------------------------- frame
 def frame(x):
     cfg = x.cfg
-    ai = "  ".join(f"{k} {paint('ok', '●') if v.get('logged_in') else paint('fail', '●')}" for k, v in x.ais.items()) or "run `orch intro`"
+    ai = "  ".join(f"{k} {paint('ok', '●') if v.get('logged_in') else paint('fail', '●')}" for k, v in x.ais.items()) or "run `lonerchestrator intro`"
     left = f" ORCH ▸ {x.project.name}"
     right = f"base {cfg['base']}   {ai} "
     head = left + " " * (W - len(left) - vlen(right)) + right
@@ -321,21 +320,6 @@ def render(project, screen=0, ui=None, color=True, proc_msg=""):
 
 
 # --------------------------------------------------------------------------- interactive loop
-KEYS = {"H": "up", "P": "down", "K": "left", "M": "right", "I": "pgup", "Q": "pgdn"}
-
-
-def read_keys():
-    import msvcrt
-    out = []
-    while msvcrt.kbhit():
-        ch = msvcrt.getwch()
-        if ch in ("\x00", "\xe0"):
-            out.append(KEYS.get(msvcrt.getwch(), ""))
-        else:
-            out.append(ch)
-    return out
-
-
 class Runner:
     """Starts/stops the pipeline as a background process owned by the TUI."""
 
@@ -351,13 +335,11 @@ class Runner:
         d.mkdir(exist_ok=True)
         env = {**os.environ, "PYTHONPATH": str(root) + os.pathsep + os.environ.get("PYTHONPATH", ""), "PYTHONIOENCODING": "utf-8"}
         out = open(d / "run.out", "w", encoding="utf-8")  # noqa: SIM115
-        self.proc = subprocess.Popen([sys.executable, "-m", "orch", "-C", str(self.project), "run", "--base", self.base], cwd=self.project,
-                                     env=env, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.proc = term.spawn([sys.executable, "-m", "orch", "-C", str(self.project), "run", "--base", self.base], self.project, env, out)
 
     def stop(self):
-        if self.proc and self.proc.poll() is None:
-            subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"], capture_output=True, check=False)
+        if self.proc:
+            term.kill_tree(self.proc)
 
     def status(self):
         if not self.proc:
@@ -400,41 +382,51 @@ def handle(key, ui, x, runner):
         runner.stop()
 
 
+def fit_window(out):
+    """Ask terminals that support it (xterm, macOS Terminal, ...) to resize to W x H. Others ignore the sequence."""
+    sz = shutil.get_terminal_size((W, H))
+    if sz.columns < W or sz.lines < H:
+        out.write(f"\x1b[8;{max(sz.lines, H)};{max(sz.columns, W)}t")
+        out.flush()
+        time.sleep(0.3)
+
+
 def run_tui(project, base, autorun=False):
     global COLOR
     COLOR = True
     project = Path(project).resolve()
     out, ui, runner = sys.stdout, UI(), Runner(project, base)
     (project / ".orchestrator").mkdir(exist_ok=True)
+    fit_window(out)
     out.write("\x1b[?1049h\x1b[?25l")
     if autorun:
         runner.start()
     last_size = None
     try:
-        while True:
-            sz = shutil.get_terminal_size((W, H))
-            (project / ".orchestrator" / "tui.size").write_text(f"{sz.columns}x{sz.lines}", encoding="utf-8")
-            x = Ctx(project, ui, runner.status())
-            for k in read_keys():
-                if k == "q" or k == "\x03":
-                    return
-                handle(k, ui, x, runner)
+        with term.RawTerminal():
+            while True:
+                sz = shutil.get_terminal_size((W, H))
+                (project / ".orchestrator" / "tui.size").write_text(f"{sz.columns}x{sz.lines}", encoding="utf-8")
                 x = Ctx(project, ui, runner.status())
-            if sz != last_size:
-                out.write("\x1b[2J")
-                last_size = sz
-            if sz.columns < W or sz.lines < H:
-                msg = f"Window too small: need {W}x{H}, have {sz.columns}x{sz.lines}. Enlarge it (or run `orch live`)."
-                out.write("\x1b[H" + msg + "\x1b[K")
-            else:
-                ox, oy = (sz.columns - W) // 2, (sz.lines - H) // 2
-                lines = frame(x)
-                out.write("\x1b[H" + "\n" * oy + "\n".join(" " * ox + ln for ln in lines))
-            out.flush()
-            time.sleep(0.12)
+                for k in term.read_keys():
+                    if k in ("q", ""):
+                        return
+                    handle(k, ui, x, runner)
+                    x = Ctx(project, ui, runner.status())
+                if sz != last_size:
+                    out.write("\x1b[2J")
+                    last_size = sz
+                if sz.columns < W or sz.lines < H:
+                    msg = f"Window too small: need {W}x{H}, have {sz.columns}x{sz.lines}. Enlarge it (or run `lonerchestrator live`)."
+                    out.write("\x1b[H" + msg + "\x1b[K")
+                else:
+                    ox, oy = (sz.columns - W) // 2, (sz.lines - H) // 2
+                    out.write("\x1b[H" + "\n" * oy + "\n".join(" " * ox + ln for ln in frame(x)))
+                out.flush()
+                time.sleep(0.12)
     except KeyboardInterrupt:
         pass
     finally:
         out.write("\x1b[?25h\x1b[?1049l")
         if runner.proc and runner.proc.poll() is None:
-            print("pipeline is still running in the background (orch status / orch tui to watch)")
+            print("pipeline is still running in the background (`lonerchestrator status`, or open the panel again)")

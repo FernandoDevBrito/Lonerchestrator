@@ -1,4 +1,6 @@
 """End-to-end pipeline with a fake agent runner and a real temp git repo."""
+import sys
+
 from conftest import add_card
 
 from orch.pipeline import Pipeline
@@ -97,7 +99,7 @@ def test_guardrail_violation_never_reaches_review(project, cfg, log):
 
 def test_ci_failure_goes_back_to_builder(project, cfg, log):
     add_card(project)
-    cfg["ci"] = 'python -c "import sys; sys.exit(1)"'
+    cfg["ci"] = f'"{sys.executable}" -c "import sys; sys.exit(1)"'
     fake = Fake(project)
     run(project, cfg, log, fake)
     assert names(project, "blocked") == ["001-thing.md"] and "qa" not in fake.calls

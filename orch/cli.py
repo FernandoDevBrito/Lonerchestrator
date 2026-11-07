@@ -1,14 +1,13 @@
-"""orch init | new | run | live | tail | status"""
+"""lonerchestrator init | new | run | live | tui | intro | tail | status"""
 import argparse
 import json
 import re
 import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-from . import config
+from . import config, term
 from .agents import Runner
 from .board import AREAS, Board
 from .events import Log
@@ -50,7 +49,7 @@ def cmd_init(a, project):
         gi.write_text("\n".join(have + add) + "\n", encoding="utf-8")
     if sys.stdin.isatty():
         run_intro(project)
-    print("\nnext: `orch intro` (pick AIs/agents) if skipped, fill context/project.md, adjust scripts/ci.sh, then `orch new \"title\"` and `orch live`")
+    print("\nnext: `lonerchestrator intro` (pick AIs/agents) if skipped, fill context/project.md, adjust scripts/ci.sh, then `lonerchestrator new \"title\"` and `lonerchestrator live`")
     return 0
 
 
@@ -97,23 +96,24 @@ def cmd_tui(a, project):
 
 
 def cmd_live(a, project):
-    """One Windows Terminal window opened at exactly the TUI size (tabs: Board, Flow, Planner, Agents)."""
-    if not shutil.which("wt"):
-        print("Windows Terminal (wt) not found; run `orch tui` in a terminal of at least %dx%d" % (W, H))
-        return 1
+    """Open the TUI in a NEW terminal window of exactly the TUI size (Windows Terminal, macOS Terminal, common Linux terminals)."""
     if not (project / "board").exists():
         print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
         return 1
     if a.setup or not configured(project):
         if run_intro(project, assume_yes=not sys.stdin.isatty()) is None:
             return 1
-    dev = ROOT / "bin" / "orch.cmd"            # source checkout: the shim sets PYTHONPATH; installed package: python -m orch
-    launcher = [str(dev)] if dev.exists() else [sys.executable, "-m", "orch"]
     proj = str(project)
-    args = ["-C", proj, "tui"] + (["--base", a.base] if a.base else []) + (["--run"] if a.run else [])
-    # --size = text area in cells (verified: the TUI sees exactly WxH)
-    subprocess.Popen(["wt", "--size", f"{W},{H}", "-w", "new", "new-tab", "--title", f"orch {project.name}", "-d", proj, "cmd", "/k", *launcher, *args])
-    return 0
+    dev = ROOT / "bin" / "orch.cmd"            # Windows source checkout: the shim sets PYTHONPATH
+    if term.WINDOWS:
+        launcher = [str(dev)] if dev.exists() else [sys.executable, "-m", "orch"]
+    else:
+        launcher = ["env", f"PYTHONPATH={ROOT}", sys.executable, "-m", "orch"]
+    argv = [*launcher, "-C", proj, "tui"] + (["--base", a.base] if a.base else []) + (["--run"] if a.run else [])
+    if term.open_window(argv, f"lonerchestrator {project.name}", proj, W, H):
+        return 0
+    print(f"Could not open a terminal window automatically. Run this in a terminal of at least {W}x{H}:\n  lonerchestrator -C {proj} tui")
+    return 1
 
 
 def cmd_tail(a, project):

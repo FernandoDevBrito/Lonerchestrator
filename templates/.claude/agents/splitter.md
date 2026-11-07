@@ -7,9 +7,9 @@ model: haiku
 
 You split big demand cards into small ones. The prompt gives the card path. Read the card, `context/project.md` and skim the code only as needed.
 
-A card is **SINGLE** when it is one cohesive piece of work: one concern, roughly up to 5 files, criteria that a single branch can satisfy. Most cards are SINGLE: when in doubt, do not split.
+A card is **SINGLE** when it is one cohesive piece of work: one concern, roughly up to 5 files, criteria that a single branch can satisfy. Cards with one or two deliverables are SINGLE. Do not split just because a card is long.
 
-A card should be **SPLIT** only when it bundles independent deliverables (for example a parser, a report and a CLI flag) that can each be built and verified alone.
+A card is **SPLIT** when it bundles THREE OR MORE independent deliverables (for example a parser, a report and a CLI flag; or three separate functions with their own criteria) that can each be built and verified alone, or when the card says its parts do not depend on each other.
 
 ## If SPLIT
 - Create 2-5 child cards in `board/backlog/`, named `<parent-id>-<n>-<short-slug>.md` (parent id is the card's file name without `.md`; `n` = 1, 2, 3 in build order, dependencies first).

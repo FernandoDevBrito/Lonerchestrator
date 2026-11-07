@@ -7,6 +7,7 @@ First public version.
 - Pipeline: split, plan (with task list), build, guardrails, CI, parallel independent review, merge, retro.
 - Agents: splitter, planner/builder (per area), qa, retro; cross reviewer through the Antigravity CLI or a second Claude model.
 - Full-screen panel (120x34): Board, Flow, Planner, Agents, AIs.
+- `requirements/` folder (what the machine needs, dev tools) and `lonerchestrator ais`: shows which AI CLIs you have and installs the missing ones with their official installers (asks first; installers take `-With`/`--with`).
 - One-line installers (`install.ps1` / `install.sh`: uv, else pipx, else pip), `lonerchestrator --version` and `doctor`, and a release workflow for PyPI trusted publishing.
 - Windows: the default CI command uses Git for Windows' bash when the first `bash` on PATH is the WSL launcher.
 - Settings tab: project options editable in the panel (saved at once) and a "Ready to run?" check with the fix for each missing item.

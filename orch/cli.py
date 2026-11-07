@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, checks, config, term, trust
+from . import __version__, aisetup, checks, config, term, trust
 from . import answer as answers
 from .agents import Runner
 from .board import AREAS, Board
@@ -142,8 +142,8 @@ def cmd_doctor(a, project):
     py_ok = sys.version_info >= (3, 10)
     line("ok" if py_ok else "fail", f"Python {platform.python_version()}", "" if py_ok else "Python 3.10 or newer is required")
     for exe, need, hint in (("git", True, "install it: https://git-scm.com"),
-                            ("claude", True, "install Claude Code: https://claude.com/claude-code, then run `claude` once to log in"),
-                            ("agy", False, "optional, adds Gemini models for the second reviewer: https://antigravity.google"),
+                            ("claude", True, "run `lonerchestrator ais` to install it, or see https://code.claude.com/docs/en/setup, then run `claude` once to log in"),
+                            ("agy", False, "optional, adds Gemini models for the second reviewer: `lonerchestrator ais` installs it"),
                             ("bash", False, "runs the default CI script (scripts/ci.sh); on Windows it comes with Git for Windows")):
         found = term.real_bash() if exe == "bash" else shutil.which(exe)
         wsl = bool(found) and exe == "bash" and "windowsapps" in found.lower()          # only the WSL launcher: no usable bash
@@ -161,6 +161,12 @@ def cmd_doctor(a, project):
         print("\n  no project in this folder. Inside a git repository run:  lonerchestrator init")
     print()
     return 1 if bad else 0
+
+
+def cmd_ais(a, project):
+    """Show which AI CLIs are installed and offer to install the missing ones (always shows the command and asks first)."""
+    only = [x.strip().lower() for x in a.install.split(",") if x.strip()] if a.install else None
+    return aisetup.run_setup(assume_yes=a.yes, only=only, interactive=sys.stdin.isatty() and sys.stdout.isatty())
 
 
 def cmd_run(a, project):
@@ -282,6 +288,9 @@ def main(argv=None):
     p.add_argument("--run", action="store_true", help="start the pipeline right away")
     p = sub.add_parser("tail", help="follow one agent's live stream")
     p.add_argument("name")
+    p = sub.add_parser("ais", help="which AI CLIs you have (Claude Code, Antigravity) and install the missing ones")
+    p.add_argument("--install", metavar="IDS", help="install these without the menu: claude, agy, or all (comma separated)")
+    p.add_argument("--yes", action="store_true", help="run the official installers without asking first")
     sub.add_parser("status")
     sub.add_parser("doctor", help="check this machine (and the project here): what is installed, what is missing, how to fix it")
     a = ap.parse_args(argv)

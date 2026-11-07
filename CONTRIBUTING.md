@@ -7,7 +7,7 @@ Thanks for helping. This project is small on purpose: standard library only, few
 ```bash
 git clone https://github.com/FernandoDevBrito/lonerchestrator.git && cd lonerchestrator
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-python -m pip install -e . pytest ruff
+python -m pip install -e . -r requirements/dev.txt
 ```
 
 ## Before opening a PR

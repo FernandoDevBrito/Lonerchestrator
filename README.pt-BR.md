@@ -25,6 +25,8 @@ Regras de ouro: **quem faz nunca avalia** (os revisores só veem o card, o diff 
 
 ## Requisitos
 
+A lista completa, com como conferir e instalar cada item, está em [`requirements/`](requirements/README.md). O `lonerchestrator doctor` confere tudo, e o `lonerchestrator ais` mostra quais CLIs de IA você tem e instala as que faltam (pergunta antes).
+
 - Python 3.10+ (só biblioteca padrão) e git
 - [Claude Code](https://claude.com/claude-code) logado (`claude`), **obrigatório**: planner, builder, retro e o revisor `qa` rodam nele
 - [Antigravity CLI](https://antigravity.google) logado (`agy`), **opcional**: dá ao revisor `cross` um modelo Gemini (uma família de modelo diferente pega erros diferentes). Sem ele, o `cross` usa um segundo modelo Claude
@@ -68,6 +70,8 @@ lonerchestrator doctor
 O `doctor` lista o que está instalado (git, Claude Code, ...), o que falta e exatamente como resolver. Dentro de um projeto, também roda as checagens do "Ready to run?".
 
 ### Outras formas
+
+**Instalar as CLIs de IA junto:** no fim o instalador mostra quais IAs você tem (Claude Code, Antigravity) e oferece instalar as que faltam, mostrando cada comando oficial antes. Use `-With claude,agy` (PowerShell) ou `--with claude,agy` (bash) para instalar sem perguntar, ou rode `lonerchestrator ais` quando quiser.
 
 | Você quer | Faça |
 |---|---|
@@ -216,7 +220,7 @@ Logs: `board/_log.md` (tabela legível), `.orchestrator/runs/<execução>/events
 ```bash
 cd D:\Github\orchestrator
 python -m venv .venv
-.venv\Scripts\python -m pip install -e . pytest ruff
+.venv\Scripts\python -m pip install -e . -r requirements/dev.txt
 .venv\Scripts\python -m ruff check .
 .venv\Scripts\python -m pytest -q        # 33 testes: pipeline com agentes falsos + git real, guardrails, TUI
 ```

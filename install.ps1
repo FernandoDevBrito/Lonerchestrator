@@ -3,8 +3,11 @@
 #   irm https://raw.githubusercontent.com/FernandoDevBrito/lonerchestrator/main/install.ps1 | iex
 #
 # Options. As arguments when you run the file:
-#   .\install.ps1 [-DryRun] [-Uninstall] [-Dev] [-Ref v0.1.0] [-Manager uv|pipx|pip] [-NoPath] [-Source <path-or-url>]
-# Or as environment variables when piped (LONERCHESTRATOR_DRYRUN=1, _REF, _MANAGER, _NO_PATH=1, _SOURCE).
+#   .\install.ps1 [-DryRun] [-Uninstall] [-Dev] [-Ref v0.1.0] [-Manager uv|pipx|pip] [-NoPath] [-Source <path-or-url>] [-With claude,agy]
+# Or as environment variables when piped (LONERCHESTRATOR_DRYRUN=1, _REF, _MANAGER, _NO_PATH=1, _SOURCE, _WITH).
+#
+# After installing, it shows which AI CLIs you have (Claude Code, Antigravity) and offers to install the missing ones.
+# -With claude,agy installs them without asking (you chose them on purpose); otherwise it asks, showing each official command first.
 #
 # It uses uv if you have it (uv can even fetch Python for you), else pipx, else pip --user.
 # It never installs other programs, never needs admin rights, and -DryRun shows every command without running it.
@@ -14,7 +17,7 @@ $Repo = "https://github.com/FernandoDevBrito/lonerchestrator"
 $Package = "git+$Repo"          # becomes "lonerchestrator" once the first release is on PyPI
 
 $o = @{ DryRun = ($env:LONERCHESTRATOR_DRYRUN -eq "1"); Uninstall = $false; Dev = $false; NoPath = ($env:LONERCHESTRATOR_NO_PATH -eq "1")
-        Ref = $env:LONERCHESTRATOR_REF; Source = $env:LONERCHESTRATOR_SOURCE; Manager = $env:LONERCHESTRATOR_MANAGER }
+        Ref = $env:LONERCHESTRATOR_REF; Source = $env:LONERCHESTRATOR_SOURCE; Manager = $env:LONERCHESTRATOR_MANAGER; With = $env:LONERCHESTRATOR_WITH }
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch ($args[$i]) {
         "-DryRun"    { $o.DryRun = $true }
@@ -24,6 +27,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
         "-Ref"       { $i++; $o.Ref = $args[$i] }
         "-Source"    { $i++; $o.Source = $args[$i] }
         "-Manager"   { $i++; $o.Manager = $args[$i] }
+        "-With"      { $i++; $o.With = ($args[$i] -join ",") }       # PowerShell turns claude,agy into a list: make it one string again
         default      { throw "unknown option: $($args[$i])" }
     }
 }
@@ -122,11 +126,18 @@ if (-not $o.DryRun) { $env:Path = "$bin;$env:Path" }
 
 # ---- prove it works
 Write-Host ""
-if ($o.DryRun) { Ok "dry run finished: nothing was changed" }
+if ($o.DryRun) {
+    Ok "dry run finished: nothing was changed"
+    if ($o.With) { Write-Host "  [dry ] lonerchestrator ais --install $($o.With) --yes" -ForegroundColor Cyan }
+    else { Write-Host "  [dry ] lonerchestrator ais   (shows your AI CLIs and offers to install the missing ones)" -ForegroundColor Cyan }
+}
 else {
     $exe = Join-Path $bin "lonerchestrator.exe"
     if (-not (Test-Path $exe)) { Bad "the command was not created in $bin"; throw "install failed" }
     Ok ((& $exe --version) -join " ")
+    if ($o.With) { & $exe ais --install $o.With --yes }
+    elseif (-not [Console]::IsInputRedirected) { & $exe ais }
+    else { Info "run `lonerchestrator ais` to see which AI CLIs you have and install the missing ones" }
     & $exe doctor
     if ($LASTEXITCODE) { Warn "doctor found something to fix (see above): the install itself is fine" }
 }

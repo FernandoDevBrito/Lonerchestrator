@@ -50,7 +50,7 @@ def readiness(project, claude_json=None):
     if not c:
         out.append(("warn", "Claude Code not checked yet", "open the AIs tab and press d"))
     elif not c.get("installed"):
-        out.append(("fail", "Claude Code is not installed", "install it: https://claude.com/claude-code"))
+        out.append(("fail", "Claude Code is not installed", "run `lonerchestrator ais` to install it, or see https://claude.com/claude-code"))
     elif not c.get("logged_in"):
         out.append(("fail", "Claude Code is not logged in", "run `claude` in a terminal, log in, then press d in the AIs tab"))
     else:

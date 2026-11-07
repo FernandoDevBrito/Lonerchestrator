@@ -3,9 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/FernandoDevBrito/lonerchestrator/main/install.sh | bash
 #
-# Options. As arguments:  bash install.sh [--dry-run] [--uninstall] [--dev] [--ref v0.1.0] [--manager uv|pipx|pip] [--no-path] [--source <path-or-url>]
+# Options. As arguments:  bash install.sh [--dry-run] [--uninstall] [--dev] [--ref v0.1.0] [--manager uv|pipx|pip] [--no-path] [--source <path-or-url>] [--with claude,agy]
 # Through a pipe pass them after "-s --":  curl -fsSL .../install.sh | bash -s -- --ref v0.1.0
-# Or as environment variables: LONERCHESTRATOR_DRYRUN=1, _REF, _MANAGER, _NO_PATH=1, _SOURCE.
+# Or as environment variables: LONERCHESTRATOR_DRYRUN=1, _REF, _MANAGER, _NO_PATH=1, _SOURCE, _WITH.
+#
+# After installing, it shows which AI CLIs you have (Claude Code, Antigravity) and offers to install the missing ones.
+# --with claude,agy installs them without asking (you chose them on purpose); otherwise it asks, showing each official command first.
 #
 # It uses uv if you have it (uv can even fetch Python for you), else pipx, else pip --user.
 # It never installs other programs, never uses sudo, and --dry-run shows every command without running it.
@@ -15,7 +18,7 @@ REPO="https://github.com/FernandoDevBrito/lonerchestrator"
 PACKAGE="git+${REPO}"          # becomes "lonerchestrator" once the first release is on PyPI
 
 dry="${LONERCHESTRATOR_DRYRUN:-0}"; uninstall=0; dev=0; nopath="${LONERCHESTRATOR_NO_PATH:-0}"
-ref="${LONERCHESTRATOR_REF:-}"; source_="${LONERCHESTRATOR_SOURCE:-}"; manager="${LONERCHESTRATOR_MANAGER:-}"
+ref="${LONERCHESTRATOR_REF:-}"; source_="${LONERCHESTRATOR_SOURCE:-}"; manager="${LONERCHESTRATOR_MANAGER:-}"; with="${LONERCHESTRATOR_WITH:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry=1 ;;
@@ -25,6 +28,7 @@ while [ $# -gt 0 ]; do
     --ref) ref="${2:?--ref needs a value}"; shift ;;
     --source) source_="${2:?--source needs a value}"; shift ;;
     --manager) manager="${2:?--manager needs a value}"; shift ;;
+    --with) with="${2:?--with needs a value}"; shift ;;
     *) echo "unknown option: $1"; exit 2 ;;
   esac
   shift
@@ -111,10 +115,16 @@ export PATH="$bin:$PATH"
 
 # ---- prove it works
 echo
-if [ "$dry" = 1 ]; then ok "dry run finished: nothing was changed"
+if [ "$dry" = 1 ]; then
+  ok "dry run finished: nothing was changed"
+  if [ -n "$with" ]; then printf '  %s[dry ]%s lonerchestrator ais --install %s --yes\n' "$C" "$Z" "$with"
+  else printf '  %s[dry ]%s lonerchestrator ais   (shows your AI CLIs and offers to install the missing ones)\n' "$C" "$Z"; fi
 else
   has lonerchestrator || { bad "the command was not created in $bin"; exit 1; }
   ok "$(lonerchestrator --version)"
+  if [ -n "$with" ]; then lonerchestrator ais --install "$with" --yes || true
+  elif { : </dev/tty; } 2>/dev/null; then lonerchestrator ais </dev/tty || true      # through `curl | bash` stdin is the script: ask on the terminal
+  else info "run \`lonerchestrator ais\` to see which AI CLIs you have and install the missing ones"; fi
   lonerchestrator doctor || warn "doctor found something to fix (see above): the install itself is fine"
 fi
 

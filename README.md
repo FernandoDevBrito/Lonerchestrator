@@ -27,6 +27,8 @@ Core rules: **whoever builds never reviews** (reviewers only see the card, the d
 
 ## Requirements
 
+The full list, with how to check and install each item, is in [`requirements/`](requirements/README.md). `lonerchestrator doctor` checks it for you, and `lonerchestrator ais` shows which AI CLIs you have and installs the missing ones (it asks first).
+
 | | |
 |---|---|
 | Python | 3.10+ (standard library only, no dependencies). With uv you do not even need to install it |
@@ -72,6 +74,8 @@ lonerchestrator doctor
 `doctor` lists what is installed (git, Claude Code, ...), what is missing and exactly how to fix it. Inside a project it also runs the "Ready to run?" checks.
 
 ### Other ways
+
+**Install the AI CLIs together:** at the end the installer shows which AIs you have (Claude Code, Antigravity) and offers to install the missing ones, showing each official command first. Add `-With claude,agy` (PowerShell) or `--with claude,agy` (bash) to install them without being asked, or run `lonerchestrator ais` any time.
 
 | You want to | Do this |
 |---|---|
@@ -217,7 +221,7 @@ Logs: `board/_log.md` (readable table), `.orchestrator/runs/<run>/events.jsonl` 
 
 ```bash
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-python -m pip install -e . pytest ruff
+python -m pip install -e . -r requirements/dev.txt
 ruff check . && pytest -q
 ```
 

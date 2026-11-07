@@ -39,7 +39,7 @@ def test_doctor_reports_what_is_missing_and_how_to_fix_it(tmp_path, monkeypatch,
     monkeypatch.setattr(cli.term, "real_bash", lambda: None)
     assert main(["-C", str(tmp_path), "doctor"]) == 1                       # claude is required
     out = capsys.readouterr().out
-    assert "[ xx ] claude not found" in out and "claude.com/claude-code" in out
+    assert "[ xx ] claude not found" in out and "lonerchestrator ais" in out and "code.claude.com" in out
     assert "[ !! ] agy not found" in out and "optional" in out               # agy is only a warning
     assert "no project in this folder" in out and "lonerchestrator init" in out
 

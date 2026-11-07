@@ -1,0 +1,8 @@
+# Tools to work ON lonerchestrator (tests, lint, packaging, security scan). Install with:
+#
+#   python -m pip install -e . -r requirements/dev.txt
+#
+pytest>=8
+ruff>=0.5
+build>=1.2
+bandit>=1.7

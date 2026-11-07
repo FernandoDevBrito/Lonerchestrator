@@ -46,6 +46,7 @@ Secret scan of the full git history: nothing found. Static analysis (bandit): on
 
 ## Recommendations
 
+- `lonerchestrator ais` can run the vendors' official installers (Claude Code, Antigravity). It always shows the command first and asks, unless you pass `--yes` or `-With` on purpose.
 - Piping an installer into your shell (`irm ... | iex`, `curl ... | bash`) means trusting it. The scripts are short and in this repository: read them, or run them with `-DryRun` / `--dry-run` first. They use no admin rights or sudo.
 - Work on a feature/scratch base branch (`"base"` in `.orchestrator/config.json`) and review before merging to `main`.
 - Read the `ci` command before approving it. Keep the deny-list; add to it rather than removing from it.

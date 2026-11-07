@@ -50,7 +50,7 @@ You need your own Claude Code subscription/login. Usage counts against its limit
 ## Install
 
 ```bash
-git clone <repo-url> lonerchestrator && cd lonerchestrator
+git clone https://github.com/FernandoDevBrito/lonerchestrator.git lonerchestrator && cd lonerchestrator
 ```
 
 **Windows (PowerShell):**

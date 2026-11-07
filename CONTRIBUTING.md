@@ -5,7 +5,7 @@ Thanks for helping. This project is small on purpose: standard library only, few
 ## Setup
 
 ```bash
-git clone <repo-url> && cd lonerchestrator
+git clone https://github.com/FernandoDevBrito/lonerchestrator.git && cd lonerchestrator
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 python -m pip install -e . pytest ruff
 ```

@@ -46,7 +46,7 @@ Você precisa da sua própria assinatura/login do Claude Code; o uso conta nos l
 ## Instalação
 
 ```bash
-git clone <url-do-repositorio> lonerchestrator && cd lonerchestrator
+git clone https://github.com/FernandoDevBrito/lonerchestrator.git lonerchestrator && cd lonerchestrator
 ```
 
 **Windows (PowerShell):**

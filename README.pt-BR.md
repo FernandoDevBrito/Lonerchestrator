@@ -123,9 +123,11 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 
 - **AIs to use**: todos os modelos das IAs em que você está logado, como checklist (`↑↓` move, `espaço` marca/desmarca). Desmarcar um modelo que um papel usa move o papel para outro modelo marcado; o último modelo Claude não pode ser desmarcado. As mudanças são salvas na hora em `.orchestrator/config.json`.
 - **Who does what**: `splitter`, `planner`, `builder`, `retro` (modelos Claude) e os dois revisores `qa`/`cross` (qualquer IA marcada). `←/→` ou `espaço` troca o modelo. Avisa quando os dois revisores usam o mesmo modelo.
-- **Uso ao vivo**, só com números que as próprias CLIs informam:
-  - **Claude Code**: os limites da sua conta, **sessão de 5 horas** e **semanal**, em barras com o horário de reset (os mesmos números do `/usage`), mais tokens por modelo nesta execução e em todas. Atualizam a cada chamada de agente; `u` atualiza na hora (uma chamada mínima com haiku).
-  - **Antigravity (`agy`)**: só tokens por modelo. O `agy` não expõe a cota restante, e o painel diz isso em vez de inventar um número.
+- **Uso ao vivo**, do mesmo jeito para toda IA:
+  - **Claude Code**: os limites da sua conta, **sessão de 5 horas** e **semanal**, em barras com o horário de reset (os mesmos números do `/usage`), mais tokens por modelo. Atualizam a cada chamada de agente; `u` atualiza na hora (uma chamada mínima com haiku).
+  - **Todas as outras IAs** (Antigravity, Codex, Gemini, Ollama, a sua): chamadas e tokens por modelo, nesta execução e em todas, e em janelas móveis (5 horas, dia e semana na página web). Os tokens são **exatos** quando a CLI os informa (o Antigravity informa; qualquer CLI pode ser ensinada com `usage` no provider) e **estimados** caso contrário (cerca de 4 caracteres por token), sempre marcados com `~`.
+  - **Seus próprios limites**: a maioria das CLIs não publica a cota, então você define a sua. `"budgets": {"agy": {"tokens": 5000000, "per": "day"}, "codex": {"calls": 200, "cost": 20, "per": "5h"}}` (a chave é uma IA ou `ia/modelo`; unidades `tokens`, `calls`, `cost` em USD; períodos `5h`, `day`, `week`, `month`, móveis). Cada um aparece como uma barra com o momento em que a chamada mais antiga deixa de contar. A aba AIs da página web tem um formulário para isso.
+  - **Custo**: dê um `price` ao provider (`{"in": 3.0, "out": 15.0}`, USD por milhão de tokens) e os tokens viram um custo estimado.
   - O cabeçalho mostra sempre a versão compacta, ex.: `claude ● 5h 52% wk 19%   agy ● 18.0k tok`.
 - `d` detecta de novo em quais IAs você está logado. Uma IA que não está pronta mostra como resolver (instalar ou logar).
 

@@ -125,9 +125,11 @@ Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new r
 
 - **AIs to use**: every model of the AIs you are logged in to, as a checklist (`↑↓` move, `space` check/uncheck). Unchecking a model that a role uses moves that role to another checked model; you cannot uncheck the last Claude model. Changes are saved to `.orchestrator/config.json` immediately.
 - **Who does what**: `splitter`, `planner`, `builder`, `retro` (Claude models) and the two reviewers `qa`/`cross` (any checked AI). `←/→` or `space` changes the model. It warns when both reviewers use the same model.
-- **Usage, live**, using only numbers the CLIs really report:
-  - **Claude Code**: your account's **5-hour session** and **weekly** limits as bars with the reset time (the same numbers as `/usage`), plus tokens per model for this run and all runs. They update after every agent call; press `u` to refresh on demand (one tiny haiku call).
-  - **Antigravity (`agy`)**: tokens per model only. `agy` does not expose remaining quota, and the panel says so instead of inventing a number.
+- **Usage, live**, the same way for every AI:
+  - **Claude Code**: your account's **5-hour session** and **weekly** limits as bars with the reset time (the same numbers as `/usage`), plus tokens per model. They update after every agent call; press `u` to refresh on demand (one tiny haiku call).
+  - **Every other AI** (Antigravity, Codex, Gemini, Ollama, your own): calls and tokens per model, this run and all runs, and over rolling windows (5 hours, day, week in the web page). Tokens are **exact** when the CLI reports them (Antigravity does; any CLI can be taught with `usage` in its provider, see below) and **estimated** otherwise (about 4 characters per token), always marked with `~`.
+  - **Your own limits**: most CLIs do not publish their quota, so you set it. `"budgets": {"agy": {"tokens": 5000000, "per": "day"}, "codex": {"calls": 200, "cost": 20, "per": "5h"}}` (a key is an AI or `ai/model`; units `tokens`, `calls`, `cost` in USD; periods `5h`, `day`, `week`, `month`, rolling). Each shows as a bar with when the oldest call stops counting. The web page's AIs tab has a form for it.
+  - **Cost**: give a provider a `price` (`{"in": 3.0, "out": 15.0}`, USD per million tokens) and its tokens become an estimated cost.
   - The header always shows the compact version, e.g. `claude ● 5h 52% wk 19%   agy ● 18.0k tok`.
 - `d` re-detects which AIs you are logged in to. An AI that is not ready shows how to fix it (install or log in).
 
@@ -248,7 +250,7 @@ Every role (splitter, planner, builder, retro, the two reviewers and the answer 
 }
 ```
 
-A provider is just *how to call the CLI*: `cmd`, `model_args` (`{model}` is replaced; the model `default` passes none), `edit_args` (added for roles that change files) and `read_args` (added for reviewers and suggestions), and `prompt_via` (`arg`, the default, with an optional `prompt_flag` such as `-p`; or `stdin`). Set `"can_edit": false` for text-only models: they can review and suggest but not build. Anything that takes a prompt and prints an answer works.
+A provider is just *how to call the CLI* (its tokens can be read from what it prints, so usage is exact instead of estimated: `"usage": {"in_regex": "input: (\\d+)", "out_regex": "output: (\\d+)"}`, or `{"total_regex": ...}`, or `{"json": {"in": "usage.input", "out": "usage.output"}}`; `strip_after` cuts a statistics block out of the answer): `cmd`, `model_args` (`{model}` is replaced; the model `default` passes none), `edit_args` (added for roles that change files) and `read_args` (added for reviewers and suggestions), and `prompt_via` (`arg`, the default, with an optional `prompt_flag` such as `-p`; or `stdin`). Set `"can_edit": false` for text-only models: they can review and suggest but not build. Anything that takes a prompt and prints an answer works.
 
 | AI | How it is known | Status |
 |---|---|---|

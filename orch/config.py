@@ -22,6 +22,7 @@ DEFAULTS = {
         "retro": {"cli": "claude", "model": "sonnet"},
         "suggester": {"cli": "claude", "model": "haiku"},      # proposes the 3 suggested answers (read-only: any AI works)
     },
+    "budgets": {},                        # your own usage limits per AI: {"agy": {"tokens": 5000000, "per": "day"}} (see usage.budget_state)
     "providers": {},                      # AI CLIs you define yourself (see providers.py); they join the presets
     "agents": {"backend": "backend", "frontend": "frontend", "both": "backend"},
     # every reviewer must approve (unless required=false and its CLI is missing)

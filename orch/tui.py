@@ -126,6 +126,7 @@ class Ctx:
         runs = sorted(runs_dir.glob("*")) if runs_dir.exists() else []
         self.run_use = usage.run_totals(self.project, self.st.get("run") or (runs[-1].name if runs else None))
         self.all_use = usage.all_totals(self.project)
+        self.budgets = usage.budget_state(self.cfg, self.project)
         self.clamp()
 
     def clamp(self):
@@ -507,6 +508,17 @@ def window_line(label, w, now):
     return f" {label:<9}{bar(frac)} {round(frac * 100):>3}%  " + paint("dim", f"resets in {fmt_eta(reset - now)}" if reset else "")
 
 
+def budget_lines(x, ai):
+    """Your own limits for this AI (config `budgets`): used / limit over a rolling window, as bars."""
+    out = []
+    for b in x.budgets:
+        if b["key"].split("/")[0] != ai:
+            continue
+        used = f"${b['used']:.2f}/${b['limit']:g}" if b["unit"] == "cost" else f"{fmt_n(int(b['used']))}/{fmt_n(int(b['limit']))} {b['unit']}"
+        out.append(f" {clip(b['key'], 9):<9}{bar(min(b['frac'], 1))} {round(b['frac'] * 100):>3}%  " + paint("dim", f"{used} per {b['per']}" + (" ~" if b["est"] else "")))
+    return out
+
+
 def usage_table(run, total, ai):
     """model | calls | tokens this run | tokens in all runs."""
     models = sorted(set(run.get(ai, {})) | set(total.get(ai, {})))
@@ -515,7 +527,8 @@ def usage_table(run, total, ai):
     out = [paint("dim", f" {'model':<20}{'calls':>6}{'this run':>11}{'all runs':>11}")]
     for m in models:
         a, b = run.get(ai, {}).get(m), total.get(ai, {}).get(m)
-        out.append(f" {clip(m, 20):<20}{(a or {'calls': 0})['calls']:>6}{fmt_n(a['in'] + a['out']) if a else '·':>11}{fmt_n(b['in'] + b['out']) if b else '·':>11}")
+        mark = lambda v: ("~" if v and v.get("est") else "") + (fmt_n(v["in"] + v["out"]) if v else "·")  # noqa: E731  (~ = estimated, the CLI reports no tokens)
+        out.append(f" {clip(m, 20):<20}{(a or {'calls': 0})['calls']:>6}{mark(a):>11}{mark(b):>11}")
     return out
 
 
@@ -616,10 +629,10 @@ def screen_ais(x):
          window_line("session", w.get("five_hour"), now), window_line("week", w.get("seven_day"), now)]
     if x.limits.get("status") not in (None, "allowed", "allowed_warning"):
         u.append(paint("fail", f" status: {x.limits.get('status')}"))
-    u += [""] + usage_table(x.run_use, x.all_use, "claude")
-    u += ["", " " + paint("bold", "Antigravity") + paint("dim", "   quota not shown by agy · tokens only")] + usage_table(x.run_use, x.all_use, "agy")
+    u += [""] + usage_table(x.run_use, x.all_use, "claude") + budget_lines(x, "claude")
+    u += ["", " " + paint("bold", "Antigravity") + paint("dim", "   quota not shown by agy · set a budget in config")] + usage_table(x.run_use, x.all_use, "agy") + budget_lines(x, "agy")
     for cli in sorted(c for c in x.all_use if c not in ("claude", "agy")):
-        u += ["", " " + paint("bold", x.ais.get(cli, {}).get("name") or cli) + paint("dim", "   calls and tokens when the CLI reports them")] + usage_table(x.run_use, x.all_use, cli)
+        u += ["", " " + paint("bold", x.ais.get(cli, {}).get("name") or cli) + paint("dim", "   ~ = estimated tokens")] + usage_table(x.run_use, x.all_use, cli) + budget_lines(x, cli)
     probe = usage.PROBE
     u += ["", " " + paint("info", ("⠿ " if probe["running"] else "") + (x.ui.msg or probe["msg"]))]
     right = fit(u, CH, 62)

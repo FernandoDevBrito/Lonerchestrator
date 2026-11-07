@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import answer, checks, config, intake, menu, settings, usage
+from . import answer, checks, config, intake, menu, providers, settings, usage
 from .board import STATES, Board, Card, create_card
 from .events import STREAMS
 from .safe import clean
@@ -162,6 +162,8 @@ class App:
                           for s in menu.SLOTS],
                 "same_reviewers": menu.assigned(cfg, "qa") == menu.assigned(cfg, "cross"),
                 "limits": usage.read_limits().get("claude", {}), "run_use": usage.run_totals(self.project, run_id), "all_use": usage.all_totals(self.project),
+                "windows": usage.window_totals(self.project), "budgets": usage.budget_state(cfg, self.project), "budget_cfg": cfg.get("budgets") or {},
+                "known": sorted(providers.registry(cfg)),
                 "job": self.job()}
 
     def job(self):
@@ -181,6 +183,30 @@ class App:
         menu._assign(raw, cfg, slot, key)
         config.write_raw(self.project, raw)
         return {"msg": f"{slot} -> {key}"}
+
+    def budget_set(self, body):
+        """Your own limit for an AI (or one model): tokens, calls or USD per rolling window. A limit of 0 removes it."""
+        key, unit, per = body.get("key"), body.get("unit"), body.get("per", "day")
+        cfg = config.load(self.project)
+        if unit not in ("tokens", "calls", "cost") or per not in usage.PERIODS or not isinstance(key, str) or key.split("/")[0] not in providers.registry(cfg):
+            raise Bad("budget: pick an AI, tokens/calls/cost and a period (5h, day, week, month)")
+        try:
+            limit = float(body.get("limit", 0))
+        except (TypeError, ValueError):
+            raise Bad("the limit must be a number") from None
+        if not 0 <= limit <= 1e12:
+            raise Bad("the limit must be 0 (remove) or a positive number")
+        raw = config.read_raw(self.project)
+        b = raw.setdefault("budgets", {}).setdefault(key, {})
+        b["per"] = per
+        if limit:
+            b[unit] = int(limit) if unit != "cost" else limit
+        else:
+            b.pop(unit, None)
+        if not any(b.get(u) for u in ("tokens", "calls", "cost")):
+            raw["budgets"].pop(key, None)
+        config.write_raw(self.project, raw)
+        return {"msg": f"{key}: " + (f"{unit} limit {limit:g} per {per}" if limit else f"{unit} limit removed")}
 
     def ais_detect(self):
         if getattr(self, "_detecting", False):
@@ -282,7 +308,7 @@ class App:
                 return simple[path]()
         elif method == "POST":
             routes = {"/api/new": self.new, "/api/answer": self.answer, "/api/suggest": self.suggest, "/api/requeue": self.requeue, "/api/move": self.move,
-                      "/api/reorder": self.reorder, "/api/ais/toggle": self.ais_toggle, "/api/ais/assign": self.ais_assign, "/api/settings/set": self.settings_set}
+                      "/api/reorder": self.reorder, "/api/ais/toggle": self.ais_toggle, "/api/ais/assign": self.ais_assign, "/api/settings/set": self.settings_set, "/api/budget": self.budget_set}
             if path == "/api/ais/detect":
                 return self.ais_detect()
             if path == "/api/ais/limits":

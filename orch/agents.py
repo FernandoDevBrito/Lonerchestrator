@@ -94,7 +94,7 @@ class Runner:
             raise ValueError(f"{role} uses an AI called '{pid}' that is not defined (see `providers` in .orchestrator/config.json)")
         spec = reg[pid]
         argv, stdin = providers.build_argv(spec, model, self._fit(prompt, spec, role), mode)
-        return self._run(role, argv, claude=False, model=model, spec=spec, stdin=stdin)
+        return self._run(role, argv, claude=False, model=model, spec=spec, stdin=stdin, ptok=len(prompt) // 4)
 
     def _fit(self, prompt, spec, role):
         """A very long prompt cannot travel as one command-line argument (Windows allows about 32k characters): park it in a file instead."""
@@ -104,10 +104,10 @@ class Runner:
         f.write_text(prompt, encoding="utf-8")
         return f"Your full instructions are in the file {f.as_posix()}. Read it and do exactly what it says."
 
-    def _run(self, role, cmd, claude, model=None, spec=None, stdin=None):
+    def _run(self, role, cmd, claude, model=None, spec=None, stdin=None, ptok=0):
         rl, n = self.cfg["rate_limit"], 0
         while True:
-            rc, answer, raw = self._once(role, cmd, claude, model, spec, stdin)
+            rc, answer, raw = self._once(role, cmd, claude, model, spec, stdin, ptok)
             if rc == 0:
                 return answer
             if AUTH.search(raw):
@@ -123,7 +123,8 @@ class Runner:
                 continue
             return answer or raw   # unknown failure: pipeline sees no marker/verdict and blocks safely
 
-    def _once(self, role, cmd, claude, model=None, spec=None, stdin=None):
+    def _once(self, role, cmd, claude, model=None, spec=None, stdin=None, ptok=0):
+        t0 = time.time()
         p = subprocess.Popen(cmd, cwd=self.project, stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
         if stdin is not None:                      # written from a thread so a big prompt cannot deadlock against our reading of the output
@@ -154,10 +155,13 @@ class Runner:
         if not claude:
             spec = spec or providers.registry(self.cfg)["agy"]
             answer, u = providers.parse_output(spec, "".join(raw))
-            if u is not None:                    # the CLI reported its tokens (agy)
-                self.usage.add(spec["id"], model or "?", role, u["in"], u["out"], 0.0, u["secs"])
-            else:                                # most CLIs report nothing: at least count the call
-                self.usage.add(spec["id"], model or providers.DEFAULT_MODEL, role, 0, 0)
+            if rc == 0:                          # a failed attempt (rate limit, login) used nothing worth counting
+                est = u is None
+                if est:                          # the CLI reports no tokens: estimate (about 4 characters per token), flagged as an estimate
+                    u = {"in": ptok, "out": len(answer) // 4, "secs": 0}
+                price = spec.get("price") or {}
+                cost = (u["in"] * price.get("in", 0) + u["out"] * price.get("out", 0)) / 1e6
+                self.usage.add(spec["id"], model or providers.DEFAULT_MODEL, role, u["in"], u["out"], cost, u["secs"] or time.time() - t0, est=est)
             if answer and not self.cfg.get("verbose"):
                 self.log.say(role, brief(answer, keep=8))
             elif answer and spec["output"] != "text":

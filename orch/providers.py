@@ -14,9 +14,13 @@ A provider is a dict:
     can_edit     False for text-only models (they can review and suggest, not build)
     models       model names to offer ("default" = do not pass a model)
     models_cmd   command that lists models; models_style how to read it: "lines" | "tab" | "table"
+    usage        how to read the tokens the CLI prints (see extract_usage); without it the runner estimates (about 4 characters per token)
+    strip_after  text after which the CLI prints statistics, cut from the answer
+    price        {"in": usd, "out": usd} per million tokens: turns tokens into an estimated cost
 Claude Code is native (its agents, permissions and stream are used directly), the rest go through this description."""
 import copy
 import json
+import re
 import shutil
 import subprocess
 
@@ -29,12 +33,15 @@ PRESETS = {
             "models_cmd": ["agy", "models"], "models_style": "tab", "tested": True},
     "codex": {"name": "OpenAI Codex CLI", "exe": "codex", "cmd": ["codex", "exec"], "model_args": ["-m", "{model}"],
               "edit_args": ["--sandbox", "workspace-write"], "read_args": ["--sandbox", "read-only"],
-              "prompt_via": "stdin", "stdin_marker": ["-"], "can_edit": True, "models": [DEFAULT_MODEL], "tested": False},
+              "prompt_via": "stdin", "stdin_marker": ["-"], "can_edit": True, "models": [DEFAULT_MODEL], "tested": False,
+              "usage": {"total_regex": r"tokens used\D+([\d,]+)"}},
     "gemini": {"name": "Gemini CLI", "exe": "gemini", "cmd": ["gemini"], "model_args": ["-m", "{model}"],
                "edit_args": ["--approval-mode", "auto_edit"], "read_args": ["--approval-mode", "plan"], "prompt_flag": "-p",
                "can_edit": True, "models": [DEFAULT_MODEL], "tested": False},
     "ollama": {"name": "Ollama (local models)", "exe": "ollama", "cmd": ["ollama", "run"], "model_args": ["{model}"], "prompt_via": "stdin",
-               "can_edit": False, "models": [], "models_cmd": ["ollama", "list"], "models_style": "table", "tested": False},
+               "can_edit": False, "models": [], "models_cmd": ["ollama", "list"], "models_style": "table", "tested": False,
+               "extra_args": ["--verbose"], "strip_after": "total duration:",
+               "usage": {"in_regex": r"prompt eval count:\s*(\d+)", "out_regex": r"(?<!prompt )eval count:\s*(\d+)"}},
 }
 
 
@@ -92,6 +99,47 @@ def build_argv(spec, model, prompt, mode):
     return argv, stdin
 
 
+def _num(text):
+    return int(re.sub(r"\D", "", str(text)) or 0)
+
+
+def _dig(obj, path):
+    """obj["a"]["b"][0] for the path "a.b.0"; None when something is missing."""
+    for part in str(path).split("."):
+        try:
+            obj = obj[int(part)] if isinstance(obj, list) else obj[part]
+        except (KeyError, IndexError, ValueError, TypeError):
+            return None
+    return obj
+
+
+def extract_usage(spec, raw):
+    """Tokens a CLI reports about itself, found the way the provider's `usage` setting says. None when nothing is found.
+
+        "usage": {"json": {"in": "usage.input_tokens", "out": "usage.output_tokens"}}     the output is one JSON object
+        "usage": {"in_regex": "input: (\\d+)", "out_regex": "output: (\\d+)"}               numbers anywhere in the output (stderr included)
+        "usage": {"total_regex": "tokens used\\D+([\\d,]+)"}                                  only a total is printed
+    Anything missing is estimated by the runner instead (about 4 characters per token), and flagged as an estimate."""
+    spec_u = spec.get("usage") or {}
+    found = {}
+    if "json" in spec_u:
+        try:
+            obj = json.loads(raw)
+            for k in ("in", "out"):
+                v = _dig(obj, spec_u["json"].get(k, ""))
+                if isinstance(v, (int, float)):
+                    found[k] = int(v)
+        except ValueError:
+            pass
+    for k, key in (("in", "in_regex"), ("out", "out_regex")):
+        if key in spec_u and (m := re.search(spec_u[key], raw)):
+            found[k] = _num(m.group(1))
+    if "total_regex" in spec_u and (m := re.search(spec_u["total_regex"], raw)):
+        found.setdefault("in", 0)
+        found.setdefault("out", _num(m.group(1)))
+    return {"in": found.get("in", 0), "out": found.get("out", 0), "secs": 0} if found else None
+
+
 def parse_output(spec, raw):
     """(answer_text, usage) from what the CLI printed. usage is {"in": n, "out": n, "secs": s} or None when the CLI does not report it."""
     if spec["output"] == "agy-json":
@@ -102,7 +150,10 @@ def parse_output(spec, raw):
                                              "secs": obj.get("duration_seconds", 0)}
         except (ValueError, AttributeError):
             pass
-    return raw.strip(), None
+    answer = raw
+    if spec.get("strip_after") and spec["strip_after"] in raw:           # statistics some CLIs print after the answer
+        answer = raw.split(spec["strip_after"], 1)[0]
+    return answer.strip(), extract_usage(spec, raw)
 
 
 def parse_models(text, style):

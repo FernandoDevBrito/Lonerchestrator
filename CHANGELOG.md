@@ -4,6 +4,9 @@
 
 First public version.
 
+- Usage for every AI: tokens read from what each CLI prints (configurable `usage`/`strip_after` per provider), an estimate marked `~` when it prints none, rolling 5h/day/week windows, your own `budgets` (tokens, calls or USD per window, with bars and reset time) and a `price` per provider for estimated cost.
+- Web page: smoother updates (elements are patched in place, moves and new cards are animated, tab changes fade), cards land instantly when dropped.
+
 - `lonerchestrator web`: the whole terminal panel in the browser (local only, token + Host/Origin checks, no dependencies): Board with drag and drop (move, re-queue, reorder by priority), Flow, Planner with answers, live Agents output, AIs with account limits and usage, Settings with readiness. New requests in plain words are understood by the `suggester` AI into a card draft (rule-based fallback).
 
 - Panel key `n`: write a request in plain words, the card is created and the pipeline starts (or picks it up if already running).

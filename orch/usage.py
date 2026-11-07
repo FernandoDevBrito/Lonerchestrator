@@ -64,11 +64,11 @@ class Usage:
     def __init__(self, run_dir=None):
         self.run_dir = Path(run_dir) if run_dir else None
 
-    def add(self, ai, model, role, tin, tout, cost=0.0, secs=0.0):
+    def add(self, ai, model, role, tin, tout, cost=0.0, secs=0.0, est=False):
         if not self.run_dir:
             return
         rec = {"ts": time.time(), "ai": ai, "model": model, "role": role, "in": int(tin or 0), "out": int(tout or 0),
-               "cost": float(cost or 0), "secs": round(secs, 1)}
+               "cost": float(cost or 0), "secs": round(secs, 1), **({"est": True} if est else {})}
         with _lock, (self.run_dir / "usage.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
 
@@ -113,6 +113,8 @@ def totals(records):
         m["in"] += r["in"]
         m["out"] += r["out"]
         m["cost"] += r.get("cost", 0)
+        if r.get("est"):
+            m["est"] = True                      # at least one call was estimated, not reported by the CLI
     return t
 
 
@@ -122,6 +124,54 @@ def run_totals(project, run_id):
 
 def all_totals(project):
     return totals(_records(sorted((Path(project) / ".orchestrator" / "runs").glob("*/usage.jsonl"))))
+
+
+# ---------------------------------------------------------------- rolling windows and budgets (any AI)
+PERIODS = {"5h": 5 * 3600, "day": 86400, "week": 7 * 86400, "month": 30 * 86400}
+
+
+def all_records(project):
+    return _records(sorted((Path(project) / ".orchestrator" / "runs").glob("*/usage.jsonl")))
+
+
+def window_totals(project, now=None, records=None):
+    """{ai: {model: {"5h"|"day"|"week"|"month": {calls, in, out, cost, est?}}}}: usage over rolling windows, from every run of this project."""
+    now = now or time.time()
+    out = {}
+    for r in records if records is not None else all_records(project):
+        for per, secs in PERIODS.items():
+            if now - r["ts"] <= secs:
+                w = out.setdefault(r["ai"], {}).setdefault(r["model"], {}).setdefault(per, {"calls": 0, "in": 0, "out": 0, "cost": 0.0})
+                w["calls"] += 1
+                w["in"] += r["in"]
+                w["out"] += r["out"]
+                w["cost"] += r.get("cost", 0)
+                if r.get("est"):
+                    w["est"] = True
+    return out
+
+
+def budget_state(cfg, project, now=None, records=None):
+    """The budgets the user set in config (`budgets`), measured over a rolling window. A key is an AI ("agy") or one model ("agy/gemini-x"):
+
+        "budgets": {"agy": {"tokens": 5000000, "per": "day"}, "codex": {"calls": 200, "per": "5h", "cost": 20.0}}
+
+    Returns [{key, per, used, limit, unit, frac, resets_in, est}]: one entry per limit set. `resets_in` is when the oldest call in the window
+    stops counting. This is how CLIs that do not publish their quota (Antigravity, Codex, Gemini, local models) still get a limit bar."""
+    now = now or time.time()
+    recs = records if records is not None else all_records(project)
+    out = []
+    for key, b in (cfg.get("budgets") or {}).items():
+        per = b.get("per", "day")
+        if per not in PERIODS:
+            continue
+        mine = [r for r in recs if now - r["ts"] <= PERIODS[per] and key in (r["ai"], f"{r['ai']}/{r['model']}")]
+        used = {"tokens": sum(r["in"] + r["out"] for r in mine), "calls": len(mine), "cost": sum(r.get("cost", 0) for r in mine)}
+        for unit in ("tokens", "calls", "cost"):
+            if b.get(unit):
+                out.append({"key": key, "per": per, "unit": unit, "used": used[unit], "limit": b[unit], "frac": used[unit] / b[unit],
+                            "resets_in": (min(r["ts"] for r in mine) + PERIODS[per] - now) if mine else 0, "est": any(r.get("est") for r in mine)})
+    return out
 
 
 # ---------------------------------------------------------------- manual refresh

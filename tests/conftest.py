@@ -69,6 +69,12 @@ def log(project):
     return Log(project, echo=False)
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path_factory, monkeypatch):
+    """Account-level files (limits.json) must never touch the real home directory during tests."""
+    monkeypatch.setenv("LONERCHESTRATOR_HOME", str(tmp_path_factory.mktemp("lc_home")))
+
+
 def add_card(project, name="001-thing", text=CARD):
     f = project / "board" / "backlog" / f"{name}.md"
     f.write_text(text, encoding="utf-8")

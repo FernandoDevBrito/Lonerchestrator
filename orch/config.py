@@ -41,6 +41,17 @@ def _merge(a, b):
     return a
 
 
+def read_raw(project) -> dict:
+    f = Path(project) / ".orchestrator" / "config.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
+def write_raw(project, raw) -> None:
+    f = Path(project) / ".orchestrator" / "config.json"
+    f.parent.mkdir(exist_ok=True)
+    f.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+
+
 def load(project: Path) -> dict:
     cfg = copy.deepcopy(DEFAULTS)
     f = Path(project) / ".orchestrator" / "config.json"

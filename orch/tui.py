@@ -8,13 +8,13 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import config, term
+from . import config, menu, term, usage
 from .board import Board, Card
 from .view import NOW, PHASE_IDX, _json, _sentence, load_events, reviewer_status, stage_status
 
 W, H = 120, 34
 CH = H - 5                                   # content rows: header, tabs, rule, [content], now, keys
-TABS = ["Board", "Flow", "Planner", "Agents"]
+TABS = ["Board", "Flow", "Planner", "Agents", "AIs"]
 COLS = [("TO DO", "backlog", "pending"), ("DOING", "doing", "running"), ("DONE", "done", "ok"), ("NEEDS YOU", "blocked", "fail")]
 CODE = {"ok": "32", "running": "33", "fail": "31", "pending": "90", "info": "36", "accent": "35", "sel": "7", "bold": "1", "text": "0"}
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -69,6 +69,7 @@ def fit(lines, h, w=W):
 class UI:
     def __init__(self):
         self.screen, self.col, self.row, self.scroll = 0, 0, 0, 0
+        self.cursor, self.msg = 0, ""              # AIs tab: cursor over checklist + role rows, last action message
 
 
 class Ctx:
@@ -87,6 +88,13 @@ class Ctx:
         self.spin = SPIN[int(time.time() * 8) % len(SPIN)]
         self.ais = _json(self.project / ".orchestrator" / "ais.json").get("ais", {})
         self.items = {k: self.board.cards(k) for _, k, _ in COLS}
+        self.avail = menu.available(self.project)
+        self.on = menu.enabled(self.project, self.avail)
+        self.limits = usage.read_limits().get("claude", {})
+        run_id = self.st.get("run")
+        runs =sorted((self.project / ".orchestrator" / "runs").glob("*")) if (self.project / ".orchestrator" / "runs").exists() else []
+        self.run_use = usage.run_totals(self.project, run_id or (runs[-1].name if runs else None))
+        self.all_use = usage.all_totals(self.project)
         self.clamp()
 
     def clamp(self):
@@ -292,20 +300,173 @@ def screen_agents(x):
     return rows
 
 
-SCREENS = [screen_board, screen_flow, screen_planner, screen_agents]
+def fmt_n(n):
+    return str(n) if n < 1000 else f"{n / 1000:.1f}k" if n < 1_000_000 else f"{n / 1_000_000:.1f}M"
+
+
+def fmt_eta(secs):
+    secs = int(secs)
+    d, r = divmod(secs, 86400)
+    h, r = divmod(r, 3600)
+    m = r // 60
+    return f"{d}d {h}h" if d else f"{h}h {m:02d}m" if h else f"{m}m"
+
+
+def bar(frac, width=18):
+    frac = min(max(frac, 0.0), 1.0)
+    full = round(frac * width)
+    kind = "ok" if frac < 0.6 else "running" if frac < 0.85 else "fail"
+    return paint(kind, "█" * full) + paint("pending", "░" * (width - full))
+
+
+def window_line(label, w, now):
+    """One account-limit window of Claude Code, e.g. the 5-hour session."""
+    if not w or w.get("utilization") is None:
+        return f" {label:<15}" + paint("pending", "no data yet")
+    reset = w.get("resetsAt") or 0
+    if reset and reset < now:
+        return f" {label:<15}" + paint("pending", "window reset since - press u to refresh")
+    frac = w["utilization"]
+    when = f"resets in {fmt_eta(reset - now)}" if reset else ""
+    return f" {label:<15}{bar(frac)} {round(frac * 100):>3}%  {paint('pending', when)}"
+
+
+def usage_table(title, data, ai):
+    rows = data.get(ai, {})
+    if not rows:
+        return [paint("pending", f" {title:<14}no calls yet")]
+    out = [paint("pending", f" {title:<12}{'calls':>6}{'tokens in':>11}{'out':>8}")]
+    for model, m in sorted(rows.items()):
+        out.append(f" {clip(model, 12):<12}{m['calls']:>6}{fmt_n(m['in']):>11}{fmt_n(m['out']):>8}")
+    return out
+
+
+def usage_summary(x):
+    """Compact one-liner for the header: Claude's account windows and agy's token count."""
+    now = time.time()
+    w = x.limits.get("windows", {})
+    parts = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "wk")):
+        win = w.get(key)
+        if win and win.get("utilization") is not None and not (win.get("resetsAt") and win["resetsAt"] < now):
+            f = win["utilization"]
+            parts.append(label + " " + paint("ok" if f < 0.6 else "running" if f < 0.85 else "fail", f"{round(f * 100)}%"))
+    claude = " ".join(parts) or paint("pending", "limits ?")
+    agy_tok = sum(m["in"] + m["out"] for m in x.all_use.get("agy", {}).values())
+    return claude, (f"{fmt_n(agy_tok)} tok" if agy_tok else "")
+
+
+def ai_rows(x):
+    """Checklist rows: ('head', text) or ('item', key). Items are the selectable AI models."""
+    rows = []
+    for cli, label in (("claude", "Claude Code"), ("agy", "Antigravity (agy)")):
+        info = x.ais.get(cli, {})
+        state = "logged in" if info.get("logged_in") else ("installed, NOT logged in" if info.get("installed") else "not installed")
+        rows.append(("head", f"{label}  -  {state}" if info else f"{label}  -  not detected yet (press d)"))
+        rows += [("item", menu.keyof(c, m)) for c, m in x.avail if c == cli]
+    return rows
+
+
+def screen_ais(x):
+    rows = ai_rows(x)
+    items = [r[1] for r in rows if r[0] == "item"]
+    total = len(items) + len(menu.SLOTS)
+    x.ui.cursor = min(max(x.ui.cursor, 0), max(total - 1, 0))
+    cur = x.ui.cursor
+    used = {}
+    for s in menu.SLOTS:
+        used.setdefault(menu.assigned(x.cfg, s), []).append(s)
+    # --- checklist
+    lines, sel_line = [], 0
+    for kind, v in rows:
+        if kind == "head":
+            lines.append(paint("bold", " " + clip(v, 54)))
+            continue
+        idx = items.index(v)
+        mark = paint("ok", "[x]") if v in x.on else "[ ]"
+        tag = clip(", ".join(used.get(v, [])), 20)
+        s = f" {mark} {clip(v.split('/', 1)[1], 30):<31}" + paint("info", tag)
+        if idx == cur:
+            sel_line = len(lines)
+            s = paint("sel", pad(ANSI.sub("", s), 56))
+        lines.append(s)
+    room = 15
+    start = min(max(sel_line - room // 2, 0), max(len(lines) - room, 0))
+    shown = lines[start:start + room] or [paint("pending", " (no AI detected: press d)")]
+    left_top = box(shown, 58, 17, "AIs TO USE  (space = check)", "info", f"{len(x.on)} on")
+    # --- who does what
+    role_lines = []
+    for i, slot in enumerate(menu.SLOTS):
+        key = menu.assigned(x.cfg, slot)
+        ok = key in x.on or x.cfg.get("use") is None
+        s = f" {slot:<9}◂ {clip(key, 36):<36} ▸" + ("" if ok else " !")
+        role_lines.append(paint("sel", pad(s, 56)) if len(items) + i == cur else (s if ok else paint("fail", s)))
+        if slot == "retro":
+            role_lines.append(paint("pending", " reviewers:"))
+    same = menu.assigned(x.cfg, "qa") == menu.assigned(x.cfg, "cross")
+    role_lines += ["", paint("running", " ! qa and cross use the same model") if same else paint("pending", " qa and cross are different models: good")]
+    left_bot = box(role_lines, 58, 12, "WHO DOES WHAT  (←/→ change)", "info")
+    # --- usage
+    now = time.time()
+    w = x.limits.get("windows", {})
+    upd = x.limits.get("updated")
+    ago = f"updated {fmt_eta(now - upd)} ago" if upd else "never read"
+    u = [paint("bold", " CLAUDE CODE") + paint("pending", f" · your account limits · {ago}"),
+         window_line("5-hour session", w.get("five_hour"), now), window_line("weekly", w.get("seven_day"), now)]
+    if x.limits.get("status") not in (None, "allowed", "allowed_warning"):
+        u.append(paint("fail", f" status: {x.limits.get('status')}"))
+    u += [""] + usage_table("this run", x.run_use, "claude") + usage_table("all runs", x.all_use, "claude")
+    u += ["", paint("bold", " ANTIGRAVITY (agy)"), paint("pending", " account quota: not exposed by agy (tokens only)")]
+    u += usage_table("this run", x.run_use, "agy") + usage_table("all runs", x.all_use, "agy")
+    probe = usage.PROBE
+    note = probe["msg"] if probe["msg"] else ""
+    u += ["", paint("pending", " u refresh limits (1 tiny haiku call)    d re-detect AIs"), " " + paint("info", ("⠿ " if probe["running"] else "") + (x.ui.msg or note))]
+    right = box(u, 61, 29, "USAGE · live", "ok" if x.limits else "pending")
+    return [f"{a} {b}" for a, b in zip(left_top + left_bot, right, strict=True)]
+
+
+def handle_ais(key, ui, x):
+    """Keys of the AIs tab. True when the key was consumed."""
+    items = [r[1] for r in ai_rows(x) if r[0] == "item"]
+    total = len(items) + len(menu.SLOTS)
+    if key in ("up", "down"):
+        ui.cursor = (ui.cursor + (-1 if key == "up" else 1)) % max(total, 1)
+    elif key in (" ", "\r", "\n"):
+        ui.msg = menu.toggle(x.project, items[ui.cursor]) if ui.cursor < len(items) else menu.cycle(x.project, menu.SLOTS[ui.cursor - len(items)], 1)
+    elif key in ("left", "right") and ui.cursor >= len(items):
+        ui.msg = menu.cycle(x.project, menu.SLOTS[ui.cursor - len(items)], -1 if key == "left" else 1)
+    elif key == "u":
+        usage.probe_in_background(x.project)
+        ui.msg = "asking Claude Code for your current limits..."
+    elif key == "d":
+        import threading
+
+        from . import intro
+        threading.Thread(target=lambda: intro.save_ais(x.project, intro.detect()), daemon=True).start()
+        ui.msg = "detecting logged-in AIs (a few seconds)..."
+    else:
+        return False
+    return True
+
+
+SCREENS = [screen_board, screen_flow, screen_planner, screen_agents, screen_ais]
 
 
 # --------------------------------------------------------------------------- frame
 def frame(x):
     cfg = x.cfg
-    ai = "  ".join(f"{k} {paint('ok', '●') if v.get('logged_in') else paint('fail', '●')}" for k, v in x.ais.items()) or "run `lonerchestrator intro`"
+    claude_use, agy_use = usage_summary(x)
+    extra = {"claude": claude_use, "agy": agy_use}
+    ai = "   ".join(f"{k} {paint('ok', '●') if v.get('logged_in') else paint('fail', '●')} {extra.get(k, '')}".rstrip() for k, v in x.ais.items()) \
+        or "run `lonerchestrator intro`"
     left = f" ORCH ▸ {x.project.name}"
     right = f"base {cfg['base']}   {ai} "
     head = left + " " * (W - len(left) - vlen(right)) + right
     tabs = " ".join(paint("sel", f" {i + 1} {n} ") if i == x.ui.screen else paint("pending", f" {i + 1} {n} ") for i, n in enumerate(TABS))
     run = x.proc_msg or (paint("running", f"{x.spin} pipeline running") if x.cur is not None else paint("pending", "idle"))
     tabs_line = tabs + " " * (W - vlen(tabs) - vlen(run) - 1) + run + " "
-    keys = " ←→↑↓ move   1-4 / Tab views   r run   x stop   PgUp/PgDn scroll   q quit"
+    keys = (" ↑↓ move   space check / change   ←→ change model   u refresh limits   d detect AIs   1-5 views   q quit" if x.ui.screen == 4
+            else " ←→↑↓ move   1-5 / Tab views   r run   x stop   PgUp/PgDn scroll   q quit")
     body = fit(SCREENS[x.ui.screen](x), CH)
     return [pad(head, W), pad(tabs_line, W), paint("pending", "─" * W)] + body + [pad(" NOW  " + x.now(), W), paint("pending", pad(keys, W))]
 
@@ -355,10 +516,12 @@ class Runner:
 
 def handle(key, ui, x, runner):
     n = len(COLS)
-    if key in "1234" and key:
+    if key and key in "12345":
         ui.screen, ui.scroll = int(key) - 1, 0
     elif key == "\t":
         ui.screen, ui.scroll = (ui.screen + 1) % len(TABS), 0
+    elif ui.screen == 4 and handle_ais(key, ui, x):
+        pass
     elif key == "left" and ui.screen == 0:
         ui.col, ui.row = (ui.col - 1) % n, ui.row
     elif key == "right" and ui.screen == 0:
@@ -391,11 +554,12 @@ def fit_window(out):
         time.sleep(0.3)
 
 
-def run_tui(project, base, autorun=False):
+def run_tui(project, base, autorun=False, tab=1):
     global COLOR
     COLOR = True
     project = Path(project).resolve()
     out, ui, runner = sys.stdout, UI(), Runner(project, base)
+    ui.screen = min(max(tab, 1), len(TABS)) - 1
     (project / ".orchestrator").mkdir(exist_ok=True)
     fit_window(out)
     out.write("\x1b[?1049h\x1b[?25l")

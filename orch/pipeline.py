@@ -5,7 +5,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import guardrails
+from . import guardrails, menu
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -24,6 +24,9 @@ class Pipeline:
     def preflight(self):
         if not self.git.has_branch(self.base):
             raise SystemExit(f"base branch '{self.base}' not found")
+        bad = menu.problems(self.cfg)
+        if bad:
+            raise SystemExit("; ".join(bad) + ". Open the AIs tab (key 5) in `lonerchestrator` to fix it.")
         for r in self.cfg["reviewers"]:
             exe = {"claude": "claude", "agy": "agy"}[r["kind"]]
             if r.get("required", True) and not shutil.which(exe):

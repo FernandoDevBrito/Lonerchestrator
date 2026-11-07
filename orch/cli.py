@@ -91,7 +91,7 @@ def cmd_run(a, project):
 
 
 def cmd_tui(a, project):
-    run_tui(project, a.base or config.load(project)["base"], autorun=a.run)
+    run_tui(project, a.base or config.load(project)["base"], autorun=a.run, tab=a.tab)
     return 0
 
 
@@ -109,7 +109,7 @@ def cmd_live(a, project):
         launcher = [str(dev)] if dev.exists() else [sys.executable, "-m", "orch"]
     else:
         launcher = ["env", f"PYTHONPATH={ROOT}", sys.executable, "-m", "orch"]
-    argv = [*launcher, "-C", proj, "tui"] + (["--base", a.base] if a.base else []) + (["--run"] if a.run else [])
+    argv = [*launcher, "-C", proj, "tui"] + (["--base", a.base] if a.base else []) + (["--run"] if a.run else []) + (["--tab", str(a.tab)] if a.tab != 1 else [])
     if term.open_window(argv, f"lonerchestrator {project.name}", proj, W, H):
         return 0
     print(f"Could not open a terminal window automatically. Run this in a terminal of at least {W}x{H}:\n  lonerchestrator -C {proj} tui")
@@ -165,13 +165,15 @@ def main(argv=None):
     p.add_argument("--card")
     p.add_argument("--base")
     p.add_argument("--dry-run", action="store_true")
-    p = sub.add_parser("live", help="open the TUI in a Windows Terminal window of the right size")
+    p = sub.add_parser("live", help="open the panel in a new terminal window of the right size")
+    p.add_argument("--tab", type=int, default=1, choices=range(1, 6), help="open on this tab (1 Board, 2 Flow, 3 Planner, 4 Agents, 5 AIs)")
     p.add_argument("--base")
     p.add_argument("--run", action="store_true", help="start the pipeline right away")
     p.add_argument("--setup", action="store_true", help="run the introduction first")
     p = sub.add_parser("intro", help="detect logged-in AIs and assign agents/models to roles")
     p.add_argument("--yes", action="store_true", help="accept defaults, no questions")
-    p = sub.add_parser("tui", help="full-screen board: Board | Flow | Planner | Agents (keyboard)")
+    p = sub.add_parser("tui", help="full-screen panel: Board | Flow | Planner | Agents | AIs (keyboard)")
+    p.add_argument("--tab", type=int, default=1, choices=range(1, 6), help="open on this tab (1 Board, 2 Flow, 3 Planner, 4 Agents, 5 AIs)")
     p.add_argument("--base")
     p.add_argument("--run", action="store_true", help="start the pipeline right away")
     p = sub.add_parser("tail", help="follow one agent's live stream")

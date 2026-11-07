@@ -90,7 +90,7 @@ lonerchestrator init       # installs board, agents, guardrails, context/ and ru
 
 ## The panel
 
-Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** with four tabs:
+Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** with five tabs:
 
 | Tab | Shows |
 |---|---|
@@ -98,8 +98,19 @@ Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** wit
 | **2 Flow** | The pipeline as connected nodes, with sub-nodes (model, memory, agent, rules) and the latest events |
 | **3 Planner** | The selected card: goal, criteria, plan, tasks (`[ ]`/`[x]`), questions for you, history |
 | **4 Agents** | What each agent is doing right now, in six aligned live panes |
+| **5 AIs** | A checklist of the AIs/models you allow, who does what, and your **live usage** (see below) |
 
-Keys: `←→↑↓` move/select · `1`–`4` or `Tab` switch tab · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
+Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
+
+### The AIs tab: choose your AIs, watch your usage
+
+- **AIs to use**: every model of the AIs you are logged in to, as a checklist (`↑↓` move, `space` check/uncheck). Unchecking a model that a role uses moves that role to another checked model; you cannot uncheck the last Claude model. Changes are saved to `.orchestrator/config.json` immediately.
+- **Who does what**: `splitter`, `planner`, `builder`, `retro` (Claude models) and the two reviewers `qa`/`cross` (any checked AI). `←/→` or `space` changes the model. It warns when both reviewers use the same model.
+- **Usage, live**, using only numbers the CLIs really report:
+  - **Claude Code**: your account's **5-hour session** and **weekly** limits as bars with the reset time (the same numbers as `/usage`), plus tokens per model for this run and all runs. They update after every agent call; press `u` to refresh on demand (one tiny haiku call).
+  - **Antigravity (`agy`)**: tokens per model only. `agy` does not expose remaining quota, and the panel says so instead of inventing a number.
+  - The header always shows the compact version, e.g. `claude ● 5h 52% wk 19%   agy ● 18.0k tok`.
+- `d` re-detects which AIs you are logged in to.
 
 ## Commands
 
@@ -110,7 +121,7 @@ Keys: `←→↑↓` move/select · `1`–`4` or `Tab` switch tab · `PgUp`/`PgD
 | `intro [--yes]` | Detect logged-in AIs and assign models/agents (`--yes` accepts the defaults) |
 | `new "title" [--area frontend\|backend\|both]` | Create a numbered card in `board/backlog/` |
 | `run [--card id] [--base branch] [--dry-run]` | Process the backlog headless |
-| `live` / `tui` | Panel in a new window of the right size / in the current terminal |
+| `live` / `tui` `[--tab 1-5]` | Panel in a new window of the right size / in the current terminal, optionally opened on a tab |
 | `tail <role>` | Follow one agent's output (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
 | `status` | Board counts and latest events |
 | `-C <dir>` | (before any command) target another project |

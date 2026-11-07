@@ -5,6 +5,8 @@ import shutil
 import subprocess
 import time
 
+from .usage import Usage
+
 RATE = re.compile(r"rate.?limit|quota|usage limit|too many requests|\b429\b|resource.?exhausted|overloaded|limit reached", re.IGNORECASE)
 AUTH = re.compile(r"oauth|failed to authenticate|not logged in|please (run )?/?login|invalid api key", re.IGNORECASE)
 
@@ -15,6 +17,24 @@ class AuthError(Exception):
 
 class RateLimitExhausted(Exception):
     pass
+
+
+def is_rate_limited(raw):
+    """Claude emits a rate_limit_event on every call (status 'allowed' normally): only a non-allowed status counts,
+    plus any other output that looks like a limit message."""
+    rest = []
+    for ln in raw.splitlines():
+        try:
+            ev = json.loads(ln)
+        except ValueError:
+            rest.append(ln)
+            continue
+        if isinstance(ev, dict) and ev.get("type") == "rate_limit_event":
+            if (ev.get("rate_limit_info") or {}).get("status", "allowed") not in ("allowed", "allowed_warning"):
+                return True
+        else:
+            rest.append(ln)
+    return bool(RATE.search("\n".join(rest)))
 
 
 def marker(text):
@@ -46,8 +66,9 @@ def _short(d):
 
 
 class Runner:
-    def __init__(self, project, cfg, log, sleep=time.sleep):
+    def __init__(self, project, cfg, log, sleep=time.sleep, usage=None):
         self.project, self.cfg, self.log, self.sleep = project, cfg, log, sleep
+        self.usage = usage or Usage(getattr(log, "dir", None))
 
     # public API used by the pipeline (tests replace this class with a fake)
     def claude(self, role, agent, prompt, model=None):
@@ -58,17 +79,17 @@ class Runner:
 
     def agy(self, role, model, prompt):
         exe = shutil.which("agy") or "agy"
-        return self._run(role, [exe, "--model", model, "-p", prompt], claude=False)
+        return self._run(role, [exe, "--model", model, "--output-format", "json", "-p", prompt], claude=False, model=model)
 
-    def _run(self, role, cmd, claude):
+    def _run(self, role, cmd, claude, model=None):
         rl, n = self.cfg["rate_limit"], 0
         while True:
-            rc, answer, raw = self._once(role, cmd, claude)
+            rc, answer, raw = self._once(role, cmd, claude, model)
             if rc == 0:
                 return answer
             if AUTH.search(raw):
                 raise AuthError(f"{role}: not logged in (run the CLI once and sign in)")
-            if RATE.search(raw):
+            if is_rate_limited(raw):
                 n += 1
                 if n > rl["max_waits"]:
                     raise RateLimitExhausted(f"{role}: rate limit did not clear")
@@ -79,7 +100,7 @@ class Runner:
                 continue
             return answer or raw   # unknown failure: pipeline sees no marker/verdict and blocks safely
 
-    def _once(self, role, cmd, claude):
+    def _once(self, role, cmd, claude, model=None):
         p = subprocess.Popen(cmd, cwd=self.project, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", errors="replace")
         raw, shown, final = [], [], None
@@ -87,6 +108,7 @@ class Runner:
             raw.append(line)
             out = line
             if claude:
+                self._count(line, role)
                 out, final = self._fmt(line, final)
                 if out and not self.cfg.get("verbose") and not out.startswith(("> ", "==")):
                     shown.append(out)
@@ -98,9 +120,22 @@ class Runner:
                 if claude or self.cfg.get("verbose"):
                     self.log.say(role, out)
         rc = p.wait()
-        if not claude and not self.cfg.get("verbose") and shown:
-            self.log.say(role, brief("".join(shown), keep=8))
+        if not claude:                          # agy prints one JSON object: answer text + token usage
+            try:
+                obj = json.loads("".join(raw))
+                self.usage.feed_agy(obj, role, model or "?")
+                shown = [obj.get("response", "")]
+                self.log.say(role, shown[0] if self.cfg.get("verbose") else brief(shown[0], keep=8))
+            except (ValueError, AttributeError):
+                if shown and not self.cfg.get("verbose"):
+                    self.log.say(role, brief("".join(shown), keep=8))
         return rc, (final if final is not None else "".join(shown)), "".join(raw)
+
+    def _count(self, line, role):
+        try:
+            self.usage.feed_claude(json.loads(line), role)
+        except (ValueError, AttributeError):
+            pass
 
     @staticmethod
     def _fmt(line, final):

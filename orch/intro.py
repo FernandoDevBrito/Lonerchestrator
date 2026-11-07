@@ -35,6 +35,13 @@ def detect():
     return ais
 
 
+def save_ais(project, ais):
+    """Remember what detect() found: .orchestrator/ais.json (read by the panel and the AIs menu)."""
+    d = Path(project) / ".orchestrator"
+    d.mkdir(exist_ok=True)
+    (d / "ais.json").write_text(json.dumps({"ts": time.strftime("%F %T"), "ais": ais}, indent=2), encoding="utf-8")
+
+
 def _pick(title, options, default, ask, out):
     """options: list of (label, value). Returns value. Blank answer = default index."""
     out(f"\n{title}")
@@ -65,7 +72,7 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
         if shutil.which(name):
             out(f"  {name:<8} detected, not supported as a runner yet")
     (project / ".orchestrator").mkdir(exist_ok=True)
-    (project / ".orchestrator" / "ais.json").write_text(json.dumps({"ts": time.strftime("%F %T"), "ais": ais}, indent=2), encoding="utf-8")
+    save_ais(project, ais)
     if not ais["claude"]["logged_in"]:
         out("\nClaude Code is required (planner, builder, retro run on it). Run `claude`, log in, then `lonerchestrator intro` again.")
         return None
@@ -103,6 +110,8 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     f = project / ".orchestrator" / "config.json"
     raw = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
     raw.update(new)
+    in_use = [f"claude/{r['model']}" for r in new["roles"].values()] + [f"{r['kind']}/{r['model']}" for r in new["reviewers"]]
+    raw["use"] = sorted(set(raw.get("use") or []) | set(in_use))      # the AIs menu (tab 5) lets you check more
     f.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
     out("\nSaved .orchestrator/config.json. This is your pipeline:\n")
     out(tui.render(project, screen=1))

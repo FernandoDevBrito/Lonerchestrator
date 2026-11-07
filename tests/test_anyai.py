@@ -27,9 +27,9 @@ def test_custom_ai_runs_every_role(project, mine, log):
     cfg, calls = mine
     add_card(project)
     assert Pipeline(project, cfg, log, Runner(project, cfg, log)).run() == 0
-    assert (project / "thing.py").exists()
+    assert (project / "001-thing.py").exists()
     assert [p.name for p in (project / "board" / "done").glob("*.md")] == ["001-thing.md"]
-    argv = [json.loads(ln)["argv"] for ln in calls.read_text(encoding="utf-8").splitlines()]
+    argv = [json.loads(ln)["argv"] for ln in calls.read_text(encoding="utf-8").splitlines() if '"argv"' in ln]
     edit = [a for a in argv if "--rw" in a]
     read = [a for a in argv if "--ro" in a]
     assert len(edit) >= 3 and len(read) >= 2                                      # planner+builder+retro edit, two reviewers only read

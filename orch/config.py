@@ -10,6 +10,8 @@ DEFAULTS = {
     "ci": "bash scripts/ci.sh",           # must exit 0 to reach review
     # model per role (planner/builder/retro run through Claude Code agents; `lonerchestrator intro` sets these)
     "git_hooks": False,                   # True = run YOUR git hooks on the orchestrator's commits (an agent could plant one)
+    "parallel": 1,                        # cards worked on at the same time, each in its own git worktree (1 = one after the other)
+    "setup": "",                          # command run once in every new worktree before its card starts, e.g. "npm ci" (parallel only)
     "split": True,                        # splitter agent breaks big cards into child cards first
     "verbose": False,                     # True = full agent text in the live panes (artifacts always keep everything)
     "roles": {

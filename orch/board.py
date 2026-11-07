@@ -103,5 +103,10 @@ class Board:
     def cards(self, state):
         return [Card(p) for p in sorted((self.root / state).glob("*.md"))]
 
+    def ready(self, card):
+        """A card with `depends: 001-a, 002-b` waits until those cards are in done/ (or no longer exist anywhere)."""
+        deps = [d for d in re.split(r"[,\s]+", card.get("depends")) if d]
+        return all(not any((self.root / s / f"{d}.md").exists() for s in STATES if s != "done") for d in deps)
+
     def counts(self):
         return {s: len(self.cards(s)) for s in STATES}

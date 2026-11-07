@@ -14,6 +14,8 @@ SPEC = [
      "Runs through a shell after every build: lint, tests, build. It must exit 0. Enter edits it; the command you type is approved."),
     ("max_attempts", "Attempts per card", "choice", [1, 2, 3, 4, 5], "",
      "How many times the builder may retry after a rejection before the card is parked for you."),
+    ("parallel", "Cards at the same time", "choice", [1, 2, 3, 4], "",
+     "How many cards are worked on together, each in its own git worktree. 1 = one after the other. Cards that depend on each other need `depends:` in the card."),
     ("split", "Split big cards", "bool", None, "",
      "A splitter agent breaks cards with 3+ independent deliverables into small cards. Costs one cheap call per card."),
     ("card_timeout_min", "Time limit per card", "choice", [15, 30, 45, 90, 180], " min",

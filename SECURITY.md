@@ -37,6 +37,8 @@ Secret scan of the full git history: nothing found. Static analysis (bandit): on
 
 ## Known limits (what this does NOT protect you from)
 
+- With `parallel` above 1, agents of different cards run at the same time in separate git worktrees. They are separated by folder, not by a sandbox: an agent can still reach files outside its worktree if its AI allows it. The `.git` tamper check and the diff guardrails apply to every card. The optional `setup` command runs through a shell and is part of the trust approval.
+
 - **`.claude/settings.json` only restricts Claude Code.** Other AIs (Codex, Gemini, your own `providers`) are limited by the flags in their provider (`edit_args`, `read_args`), plus the diff guardrails, the `.git` tamper check and the reviewers. Read a provider before trusting it; a provider defined in a project's config runs a program and needs `lonerchestrator trust`.
 - The Codex, Gemini and Ollama presets were written from the vendors' documentation and have not been run by the author.
 

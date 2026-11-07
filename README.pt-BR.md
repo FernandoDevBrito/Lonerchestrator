@@ -189,6 +189,16 @@ Verificados por **código**, não por prompt, antes dos testes:
 
 `base` é a branch que recebe os cards aprovados. Use outra (ex.: `agents-setup`) para a `main` ficar intocada até você decidir.
 
+## Vários cards ao mesmo tempo
+
+Ajuste **Cards at the same time** na aba Settings (ou `"parallel": 3` na config, ou `lonerchestrator run -j 3`). Cada card passa a trabalhar em uma git worktree própria, em `.orchestrator/worktrees/<card>`, com branch própria, então os agentes nunca mexem nos arquivos uns dos outros. Plano, build, guardrails, CI e as duas revisões rodam em paralelo; merges e retros acontecem um de cada vez no seu checkout principal. Se outro card foi mesclado antes, o card traz a base nova para a sua branch e roda o CI de novo antes do merge.
+
+- **Dependências:** um card que precisa de outro antes diz isso no cabeçalho, `depends: 001-schema, 002-api`. Ele espera esses cards chegarem em `done/`. Cards sem `depends` são considerados independentes.
+- **Uma worktree nova não tem dependências instaladas** (`node_modules`, virtualenv...). Coloque em `"setup"` o comando que prepara uma (por exemplo `"npm ci"`); ele roda uma vez por card e faz parte do que o `lonerchestrator trust` aprova.
+- Cada card em andamento faz suas próprias chamadas de IA, então seus limites acabam mais rápido. O limite de taxa continua sendo esperado por card.
+- A aba Flow acompanha o card mais recente; a aba Board marca todos os que estão rodando. Os painéis dos agentes misturam a saída de todos os cards (cada linha da tabela de log diz o card).
+- `parallel: 1` (padrão) é o comportamento antigo: um card depois do outro, sem worktrees.
+
 ## Qualquer IA
 
 Todo papel (splitter, planner, builder, retro, os dois revisores e o sugestor de respostas) pode rodar em **qualquer IA de linha de comando**, não só o Claude Code. Escolha na aba AIs, ou no `.orchestrator/config.json`:

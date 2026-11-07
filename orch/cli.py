@@ -199,7 +199,12 @@ def cmd_run(a, project):
         print("working tree not clean; commit or stash first")
         return 1
     log = Log(project)
-    pipe = Pipeline(project, cfg, log, Runner(project, cfg, log), base=base)
+    jobs = a.jobs or cfg.get("parallel", 1)
+    if jobs > 1:                                               # several cards at once, each in its own git worktree
+        from .parallel import Parallel
+        pipe = Parallel(project, cfg, log, Runner(project, cfg, log), base=base, jobs=jobs)
+    else:
+        pipe = Pipeline(project, cfg, log, Runner(project, cfg, log), base=base)
     pipe.preflight()
     return pipe.run(a.card)
 
@@ -288,6 +293,7 @@ def main(argv=None):
     p.add_argument("--card")
     p.add_argument("--base")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("-j", "--jobs", type=int, metavar="N", help="work on N cards at the same time (default: `parallel` in the config, 1)")
     p = sub.add_parser("live", help="open the panel in a new terminal window of the right size")
     p.add_argument("--tab", type=int, default=1, choices=range(1, 7), help="open on this tab (1 Board, 2 Flow, 3 Planner, 4 Agents, 5 AIs, 6 Settings)")
     p.add_argument("--base")

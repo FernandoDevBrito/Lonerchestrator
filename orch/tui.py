@@ -184,7 +184,7 @@ def screen_board(x):
         rows.append(paint(kind if kind != "dim" else "text", "● ") + paint("bold", title) + paint("dim", f"  {n}"))
         rows.append(paint(kind if kind != "dim" else "faint", "━" * w))
         for ri, c in enumerate(x.items[key]):
-            running = key == "doing" and c.id == x.st.get("card")
+            running = key == "doing" and (c.id == x.st.get("card") or c.id in (x.st.get("active") or {}))
             tries = int(c.get("attempts", "0") or 0)
             ident = c.id.split("-")[0] + (f" ({tries})" if tries > 1 else "")
             mark = x.spin if running else "▎"

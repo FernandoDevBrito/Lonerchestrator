@@ -21,7 +21,8 @@ class Log:
         self.streams_dir.mkdir(exist_ok=True)
         self.table = self.project / "board" / "_log.md"
         self.echo = echo
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._active = {}                    # cards being worked on right now (several when cards run in parallel): id -> phase
         for s in STREAMS:
             (self.streams_dir / f"{s}.log").write_text(f"--- run {self.run_id} ---\n", encoding="utf-8")
         if not self.table.exists():
@@ -52,4 +53,20 @@ class Log:
         return d / name
 
     def state(self, **kw):
-        (self.root / "state.json").write_text(json.dumps({"run": self.run_id, "ts": time.strftime("%F %T"), **kw}), encoding="utf-8")
+        with self._lock:
+            if kw.get("card"):
+                self._active[kw["card"]] = kw.get("phase", "")
+            elif "card" in kw:
+                self._active.clear()
+            self._write(kw)
+
+    def _write(self, kw):
+        data = {"run": self.run_id, "ts": time.strftime("%F %T"), **kw, "active": dict(self._active)}
+        (self.root / "state.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def finish(self, cid):
+        """A card left the pipeline: show the most recent card that is still running, or idle."""
+        with self._lock:
+            self._active.pop(cid, None)
+            card, phase = list(self._active.items())[-1] if self._active else (None, "idle")
+            self._write({"card": card, "phase": phase})

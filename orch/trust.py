@@ -27,6 +27,8 @@ def _digest(cfg):
     text = cfg["ci"]
     if cfg.get("providers"):
         text += "\n" + json.dumps(cfg["providers"], sort_keys=True)
+    if cfg.get("setup"):
+        text += "\nsetup:" + cfg["setup"]
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 

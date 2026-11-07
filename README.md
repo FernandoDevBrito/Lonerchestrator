@@ -191,6 +191,16 @@ Checked by **code**, not by prompts, before CI runs:
 
 `base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide.
 
+## Several cards at once
+
+Set **Cards at the same time** in the Settings tab (or `"parallel": 3` in the config, or `lonerchestrator run -j 3`). Each card then works in its own git worktree under `.orchestrator/worktrees/<card>` with its own branch, so agents never touch each other's files. Planning, building, guardrails, CI and the two reviews run in parallel; merges and retros happen one at a time in your main checkout. If another card was merged first, a card merges the new base into its branch and runs CI again before it is merged.
+
+- **Dependencies:** a card that needs another one first says so in its header, `depends: 001-schema, 002-api`. It waits until those are in `done/`. Cards without `depends` are assumed independent.
+- **Fresh worktrees have no installed dependencies** (`node_modules`, a virtualenv, ...). Put the command that prepares one in `"setup"` (for example `"npm ci"`); it runs once per card, and is part of what `lonerchestrator trust` approves.
+- Each running card uses its own agent calls, so it uses your AI limits faster. Rate limits are still waited out per card.
+- The panel's Flow tab follows the most recently active card; the Board tab marks every running card. The agent panes interleave the output of all running cards (each line of the log table names its card).
+- `parallel: 1` (the default) is the old behaviour: one card after the other, no worktrees.
+
 ## Any AI
 
 Every role (splitter, planner, builder, retro, the two reviewers and the answer suggester) can run on **any AI command-line tool**, not only Claude Code. Pick them in the AIs tab, or in `.orchestrator/config.json`:

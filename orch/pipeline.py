@@ -39,7 +39,8 @@ class _Guarded:
 
 
 class Pipeline:
-    def __init__(self, project, cfg, log, runner, base=None):
+    def __init__(self, project, cfg, log, runner, base=None, hub=None):
+        self.hub = hub                      # set when this pipeline works in its own git worktree (parallel cards): see parallel.py
         self.p, self.cfg, self.log = project, cfg, log
         self.base = base or cfg["base"]
         self.git, self.board = Git(project, hooks=cfg.get("git_hooks", False)), Board(project)
@@ -86,7 +87,7 @@ class Pipeline:
     def run(self, only=None):
         self.git.checkout(self.base)
         def pending(seen):
-            return [c for c in self.board.cards("backlog") if c.id not in seen and (only is None or c.id == only or c.id.startswith(f"{only}-"))]
+            return [c for c in self.board.cards("backlog") if c.id not in seen and self.board.ready(c) and (only is None or c.id == only or c.id.startswith(f"{only}-"))]
 
         seen, todo = set(), pending(set())
         if not todo:
@@ -181,9 +182,7 @@ class Pipeline:
             # CI
             self.log.state(card=cid, phase=f"ci {n}")
             t = time.time()
-            ci = subprocess.run(term.fix_ci_command(g["ci"]), shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
-                                 cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
-            ci_out = ci.stdout + ci.stderr
+            ci, ci_out = self._ci()
             self.log.artifact(cid, f"ci{n}.txt", ci_out)
             self.log.say("pipeline", "\n".join("   | " + ln for ln in ci_out.splitlines()[-2:]))
             if ci.returncode:
@@ -207,6 +206,11 @@ class Pipeline:
             feedback = self.log.artifact(cid, "feedback.txt", "REVIEW REJECTED. Fix these failures.\n" +
                                          "\n".join(f"## {k}\n{o}" for k, (_, o) in results.items()))
         self._block(card, br, t0, f"needs human: {g['max_attempts']} attempts exhausted")
+
+    def _ci(self):
+        ci = subprocess.run(term.fix_ci_command(self.cfg["ci"]), shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
+                            cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        return ci, ci.stdout + ci.stderr
 
     def _split(self, card, br, t0, agent):
         """Splitter agent: big card -> child cards in backlog. Returns True when the parent card was handled here."""
@@ -257,14 +261,21 @@ class Pipeline:
         cid = card.id
         self.log.state(card=cid, phase="merge")
         self.git.commit(f"card {cid}: {card.title}", f"Approved by {', '.join(r['name'] for r in self.cfg['reviewers'])} after {n} attempt(s); CI green.")
-        self.git.checkout(self.base)
-        if not self.git.merge_no_ff(br, f"Merge card {cid}: {card.title}"):
+        if not self._merge(br, f"Merge card {cid}: {card.title}"):
             return self._block(card, br, t0, f"merge into {self.base} failed")
-        self.git.delete_branch(br)   # fully merged, safe delete
         card.log(f"APPROVED after {n} attempt(s), merged into {self.base}")
         card.move("done")
         self.log.event("card_done", cid, "orchestrator", f"merged into {self.base}", time.time() - t0, attempts=n)
         self._retro(card, "done", n)
+
+    def _merge(self, br, msg):
+        if self.hub:                                  # parallel: the shared main checkout does the merge, one card at a time
+            return self.hub.merge(self, br, msg)
+        self.git.checkout(self.base)
+        if not self.git.merge_no_ff(br, msg):
+            return False
+        self.git.delete_branch(br)   # fully merged, safe delete
+        return True
 
     def _block(self, card, br, t0, reason):
         card.log(f"BLOCKED: {reason}")
@@ -278,11 +289,15 @@ class Pipeline:
     def _park(self, cid, br):
         """Keep work-in-progress on the card branch and return to base."""
         self.git.commit_if_dirty(f"WIP card {cid} (parked)")
+        if self.hub:                                  # the worktree is removed afterwards; the branch keeps the work
+            return
         self.git.checkout(self.base)
         if self.git.has_branch(br) and self.git.ahead(self.base, br) == 0:
             self.git.delete_branch(br)
 
     def _retro(self, card, status, attempts):
+        if self.hub:                                  # retro writes memory/context in the main checkout: one at a time
+            return self.hub.retro(card, status, attempts)
         self.log.state(card=card.id, phase="retro")
         t = time.time()
         self._ask("retro", "retro", f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")

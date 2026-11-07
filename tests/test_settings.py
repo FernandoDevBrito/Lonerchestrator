@@ -160,6 +160,9 @@ def test_settings_tab_keys_change_persist_and_edit_text(project):
     key("down")                                                          # Attempts per card
     key("right")
     assert settings.value(project, "max_attempts") == 4 and "Attempts per card: 4" in ui.msg
+    key("down")                                                          # Cards at the same time
+    key("right")
+    assert settings.value(project, "parallel") == 2
     key("down")                                                          # Split big cards
     key(" ")
     assert settings.value(project, "split") is False

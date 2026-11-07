@@ -6,6 +6,7 @@ import shutil
 import signal
 import subprocess
 import sys
+from pathlib import Path
 
 WINDOWS = sys.platform == "win32"
 
@@ -85,6 +86,29 @@ def kill_tree(proc):
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
+
+
+def real_bash():
+    """A bash that works. On Windows the first `bash` on PATH is often the WSL launcher (WindowsApps), which fails when no Linux distro
+    is installed, so prefer the bash that ships with Git for Windows (next to git)."""
+    found = shutil.which("bash")
+    if not WINDOWS or not found or "windowsapps" not in found.lower():
+        return found
+    git = shutil.which("git")
+    for parent in (Path(git).resolve().parents if git else []):
+        cand = parent / "bin" / "bash.exe"
+        if cand.is_file():
+            return str(cand)
+    return found
+
+
+def fix_ci_command(cmd):
+    """The default CI command starts with `bash`: on Windows run it with a bash that works (see real_bash)."""
+    if WINDOWS and cmd.startswith("bash "):
+        b = real_bash()
+        if b:
+            return f'"{b}" {cmd[5:]}'
+    return cmd
 
 
 def _applescript_str(s):

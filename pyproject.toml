@@ -22,6 +22,13 @@ classifiers = [
   "Topic :: Software Development",
 ]
 dependencies = []   # standard library only
+authors = [{ name = "Nando" }]
+
+[project.urls]
+Homepage = "https://github.com/FernandoDevBrito/lonerchestrator"
+Source = "https://github.com/FernandoDevBrito/lonerchestrator"
+Issues = "https://github.com/FernandoDevBrito/lonerchestrator/issues"
+Changelog = "https://github.com/FernandoDevBrito/lonerchestrator/blob/main/CHANGELOG.md"
 
 [project.scripts]
 lonerchestrator = "orch.cli:main"

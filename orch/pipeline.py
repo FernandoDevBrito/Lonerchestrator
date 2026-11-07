@@ -5,7 +5,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import guardrails, menu
+from . import guardrails, menu, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -157,7 +157,7 @@ class Pipeline:
             # CI
             self.log.state(card=cid, phase=f"ci {n}")
             t = time.time()
-            ci = subprocess.run(g["ci"], shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
+            ci = subprocess.run(term.fix_ci_command(g["ci"]), shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
                                  cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
             ci_out = ci.stdout + ci.stderr
             self.log.artifact(cid, f"ci{n}.txt", ci_out)

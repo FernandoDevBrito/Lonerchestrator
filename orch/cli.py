@@ -1,14 +1,16 @@
 """lonerchestrator init | new | run | live | tui | intro | tail | status"""
 import argparse
 import json
+import os
+import platform
 import re
 import shutil
 import sys
 import time
 from pathlib import Path
 
+from . import __version__, checks, config, term, trust
 from . import answer as answers
-from . import config, term, trust
 from .agents import Runner
 from .board import AREAS, Board
 from .events import Log
@@ -123,6 +125,44 @@ def cmd_trust(a, project):
     return 0 if ensure_trust(project, cfg) else 1
 
 
+def cmd_doctor(a, project):
+    """Check this machine and, when the current folder is a project, the project too. Exit 1 when something is missing."""
+    color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+    tag = {"ok": (" ok ", "32"), "warn": (" !! ", "33"), "fail": (" xx ", "31")}
+    bad = []
+
+    def line(status, text, hint=""):
+        label, code = tag[status]
+        mark = f"\x1b[{code}m[{label}]\x1b[0m" if color else f"[{label}]"
+        print(f"  {mark} {text}" + (f"\n         {hint}" if hint else ""))
+        if status == "fail":
+            bad.append(text)
+
+    print(f"\nlonerchestrator {__version__}  \u00b7  python {platform.python_version()}  \u00b7  {platform.system()}\n")
+    py_ok = sys.version_info >= (3, 10)
+    line("ok" if py_ok else "fail", f"Python {platform.python_version()}", "" if py_ok else "Python 3.10 or newer is required")
+    for exe, need, hint in (("git", True, "install it: https://git-scm.com"),
+                            ("claude", True, "install Claude Code: https://claude.com/claude-code, then run `claude` once to log in"),
+                            ("agy", False, "optional, adds Gemini models for the second reviewer: https://antigravity.google"),
+                            ("bash", False, "runs the default CI script (scripts/ci.sh); on Windows it comes with Git for Windows")):
+        found = term.real_bash() if exe == "bash" else shutil.which(exe)
+        wsl = bool(found) and exe == "bash" and "windowsapps" in found.lower()          # only the WSL launcher: no usable bash
+        line("ok" if found and not wsl else ("fail" if need else "warn"), f"{exe}" + (f"  ({found})" if found else " not found"),
+             "" if found and not wsl else (hint if not found else "that is the WSL launcher, not Git Bash: install Git for Windows, or set another CI command in Settings"))
+    system = {"win32": "Windows", "darwin": "Darwin"}.get(sys.platform, "Linux")
+    can = term.window_command(system, shutil.which, ["x"], "t", "/", W, H) is not None
+    line("ok" if can else "warn", "can open its own window" if can else "cannot open its own window here",
+         "" if can else f"`lonerchestrator live` needs a supported terminal; use `lonerchestrator tui` in a terminal of at least {W}x{H}")
+    if (project / "board").exists():
+        print(f"\n  project: {project}\n")
+        for status, title, hint in checks.readiness(project):
+            line(status, title, hint)
+    else:
+        print("\n  no project in this folder. Inside a git repository run:  lonerchestrator init")
+    print()
+    return 1 if bad else 0
+
+
 def cmd_run(a, project):
     cfg = config.load(project)
     base = a.base or cfg["base"]
@@ -214,6 +254,7 @@ def main(argv=None):
         s.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(prog="lonerchestrator")
     ap.add_argument("-C", dest="project", default=".", help="project directory (default: cwd)")
+    ap.add_argument("--version", action="version", version=f"lonerchestrator {__version__}")
     sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("init", help="install board/agents/guardrails into a project")
     p.add_argument("--force", action="store_true")
@@ -242,6 +283,7 @@ def main(argv=None):
     p = sub.add_parser("tail", help="follow one agent's live stream")
     p.add_argument("name")
     sub.add_parser("status")
+    sub.add_parser("doctor", help="check this machine (and the project here): what is installed, what is missing, how to fix it")
     a = ap.parse_args(argv)
     if a.cmd is None:                       # bare `lonerchestrator` = open the TUI for this folder
         a = ap.parse_args(["-C", a.project, "live"])

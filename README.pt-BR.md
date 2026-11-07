@@ -45,35 +45,40 @@ Você precisa da sua própria assinatura/login do Claude Code; o uso conta nos l
 
 ## Instalação
 
-```bash
-git clone https://github.com/FernandoDevBrito/lonerchestrator.git lonerchestrator && cd lonerchestrator
+Uma linha, sem precisar clonar. O instalador usa o [uv](https://docs.astral.sh/uv/) se você tiver (o uv até baixa o Python para você), senão o pipx, senão `pip --user`. Ele nunca pede admin e não instala nada além desta ferramenta.
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/FernandoDevBrito/lonerchestrator/main/install.ps1 | iex
 ```
 
-**Windows (PowerShell):**
+**macOS / Linux**
 
 ```bash
-.\install.ps1            # confere requisitos, instala o pacote, garante o comando no PATH
-.\install.ps1 -DryRun    # só mostra o que faria
+curl -fsSL https://raw.githubusercontent.com/FernandoDevBrito/lonerchestrator/main/install.sh | bash
 ```
 
-**macOS / Linux:**
+Abra um **terminal novo** e confira tudo:
 
 ```bash
-./install.sh             # usa pipx se existir, senão pip --user
-./install.sh --dry-run
+lonerchestrator doctor
 ```
 
-O que os scripts fazem: conferem Python/git (e avisam o que falta de claude/agy), rodam a instalação **editável** (um `git pull` já atualiza o comando) e, no Windows, adicionam a pasta de scripts do Python ao PATH do **usuário** se ela não estiver lá. Não mexem em mais nada do sistema.
+O `doctor` lista o que está instalado (git, Claude Code, ...), o que falta e exatamente como resolver. Dentro de um projeto, também roda as checagens do "Ready to run?".
 
-Manualmente: `pipx install -e .` ou `python -m pip install -e .`
+### Outras formas
 
-Abra um terminal **novo** e teste:
+| Você quer | Faça |
+|---|---|
+| Usar uv ou pipx direto | `uv tool install git+https://github.com/FernandoDevBrito/lonerchestrator` ou `pipx install git+https://github.com/FernandoDevBrito/lonerchestrator` |
+| Fixar uma versão | `$env:LONERCHESTRATOR_REF="v0.1.0"` antes da linha do PowerShell, ou `curl ... \| bash -s -- --ref v0.1.0` |
+| Olhar antes de instalar | Salve o script e rode com `-DryRun` / `--dry-run`: mostra cada comando e não muda nada |
+| Atualizar | Rode a mesma linha de novo, ou `uv tool upgrade lonerchestrator` / `pipx upgrade lonerchestrator` |
+| Desinstalar | `install.ps1 -Uninstall` / `install.sh --uninstall` (seus projetos, cards e memória nunca são tocados) |
+| Mexer no código | Clone e rode `.\install.ps1 -Dev` / `./install.sh --dev`: instalação editável, então `git pull` atualiza o comando |
 
-```bash
-lonerchestrator --help
-```
-
-Desinstalar: `.\install.ps1 -Uninstall` ou `./install.sh --uninstall` (seus projetos, cards e memória não são tocados).
+> Passar um script direto para o shell é confiar nele. Os dois instaladores são curtos e estão neste repositório: leia antes, ou use `-DryRun`. Ainda não está publicado no PyPI.
 
 ## Começando em um projeto
 

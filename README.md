@@ -29,7 +29,7 @@ Core rules: **whoever builds never reviews** (reviewers only see the card, the d
 
 | | |
 |---|---|
-| Python | 3.10+ (standard library only, no dependencies) |
+| Python | 3.10+ (standard library only, no dependencies). With uv you do not even need to install it |
 | git | any recent version |
 | [Claude Code](https://claude.com/claude-code) | installed **and logged in** (`claude`). Required: planner, builder, retro and the `qa` reviewer run on it |
 | [Antigravity CLI](https://antigravity.google) `agy` | optional. Gives the `cross` reviewer a Gemini model (a different model family catches different mistakes). Without it, `cross` is a second Claude model |
@@ -49,31 +49,40 @@ You need your own Claude Code subscription/login. Usage counts against its limit
 
 ## Install
 
-```bash
-git clone https://github.com/FernandoDevBrito/lonerchestrator.git lonerchestrator && cd lonerchestrator
-```
+One line, no clone needed. The installer uses [uv](https://docs.astral.sh/uv/) if you have it (uv can even fetch Python for you), otherwise pipx, otherwise `pip --user`. It never needs admin rights and installs nothing but this tool.
 
-**Windows (PowerShell):**
+**Windows (PowerShell)**
 
 ```powershell
-.\install.ps1            # checks requirements, installs the package, makes sure the command is on PATH
-.\install.ps1 -DryRun    # show what it would do
+irm https://raw.githubusercontent.com/FernandoDevBrito/lonerchestrator/main/install.ps1 | iex
 ```
 
-**macOS / Linux:**
+**macOS / Linux**
 
 ```bash
-./install.sh             # uses pipx if available, otherwise pip --user
-./install.sh --dry-run
+curl -fsSL https://raw.githubusercontent.com/FernandoDevBrito/lonerchestrator/main/install.sh | bash
 ```
 
-Or by hand: `pipx install -e .` / `python -m pip install -e .`. It is an editable install, so `git pull` updates the command. Open a **new terminal** and check:
+Open a **new terminal** and check everything:
 
 ```bash
-lonerchestrator --help
+lonerchestrator doctor
 ```
 
-Uninstall: `.\install.ps1 -Uninstall` or `./install.sh --uninstall` (your projects, cards and memory are never touched).
+`doctor` lists what is installed (git, Claude Code, ...), what is missing and exactly how to fix it. Inside a project it also runs the "Ready to run?" checks.
+
+### Other ways
+
+| You want to | Do this |
+|---|---|
+| Use uv or pipx directly | `uv tool install git+https://github.com/FernandoDevBrito/lonerchestrator` or `pipx install git+https://github.com/FernandoDevBrito/lonerchestrator` |
+| Pin a version | `$env:LONERCHESTRATOR_REF="v0.1.0"` before the PowerShell line, or `curl ... \| bash -s -- --ref v0.1.0` |
+| Look before installing | Save the script and run it with `-DryRun` / `--dry-run`: it prints every command and changes nothing |
+| Update | Run the same line again, or `uv tool upgrade lonerchestrator` / `pipx upgrade lonerchestrator` |
+| Uninstall | `install.ps1 -Uninstall` / `install.sh --uninstall` (your projects, cards and memory are never touched) |
+| Hack on it | Clone, then `.\install.ps1 -Dev` / `./install.sh --dev`: an editable install, so `git pull` updates the command |
+
+> Piping a script into your shell means trusting it. Both installers are short and live in this repository: read them first, or use `-DryRun`. Not published on PyPI yet.
 
 ## Quick start
 

@@ -100,6 +100,9 @@ def cmd_live(a, project):
     if not shutil.which("wt"):
         print("Windows Terminal (wt) not found; run `orch tui` in a terminal of at least %dx%d" % (W, H))
         return 1
+    if not (project / "board").exists():
+        print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
+        return 1
     if a.setup or not configured(project):
         if run_intro(project, assume_yes=not sys.stdin.isatty()) is None:
             return 1
@@ -147,9 +150,9 @@ def cmd_status(a, project):
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         s.reconfigure(encoding="utf-8", errors="replace")
-    ap = argparse.ArgumentParser(prog="orch")
+    ap = argparse.ArgumentParser(prog="lonerchestrator")
     ap.add_argument("-C", dest="project", default=".", help="project directory (default: cwd)")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("init", help="install board/agents/guardrails into a project")
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("new", help="create a card in board/backlog")
@@ -172,5 +175,7 @@ def main(argv=None):
     p.add_argument("name")
     sub.add_parser("status")
     a = ap.parse_args(argv)
+    if a.cmd is None:                       # bare `lonerchestrator` = open the TUI for this folder
+        a = ap.parse_args(["-C", a.project, "live"])
     project = Path(a.project).resolve()
     return globals()[f"cmd_{a.cmd}"](a, project)

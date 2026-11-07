@@ -5,8 +5,9 @@ import subprocess
 import time
 from pathlib import Path
 
+from . import providers
+
 CLAUDE_MODELS = ["sonnet", "opus", "haiku"]
-UNSUPPORTED = ["gemini", "codex"]   # detected for information only
 
 
 def parse_agy_models(text):
@@ -22,8 +23,9 @@ def _run(cmd, timeout):
         return 1, ""
 
 
-def detect():
-    """{'claude': {installed, logged_in, models}, 'agy': {...}} (login = a tiny real call succeeds)."""
+def detect(cfg=None):
+    """{ai id: {installed, logged_in, models}} for Claude Code, Antigravity and every other AI in the registry (presets + config `providers`).
+    Claude and Antigravity prove their login with a tiny real call. For any other CLI, being installed is enough: if it is not signed in, its own error shows on first use."""
     ais = {}
     exe = shutil.which("claude")
     ok = bool(exe) and _run([exe, "-p", "reply with the word ok"], 90)[0] == 0
@@ -32,6 +34,13 @@ def detect():
     rc, out = _run([exe, "models"], 60) if exe else (1, "")
     models = parse_agy_models(out) if rc == 0 else []
     ais["agy"] = {"installed": bool(exe), "logged_in": bool(models), "models": models}
+    for pid, spec in providers.registry(cfg).items():
+        if pid in ais or spec.get("native"):
+            continue
+        here = bool(shutil.which(spec["exe"]))
+        found = providers.list_models(spec) if here else []
+        models = list(dict.fromkeys(found + [m for m in spec["models"]])) if here else []
+        ais[pid] = {"installed": here, "logged_in": here and bool(models), "models": models, "name": spec["name"]}
     return ais
 
 
@@ -64,30 +73,31 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     project = Path(project)
     cfg = config.load(project)
     out("\n=== ORCH introduction: AIs on this computer ===")
-    ais = ais or detect()
+    ais = ais or detect(cfg)
     for name, v in ais.items():
+        if not v["installed"] and name not in ("claude", "agy"):
+            continue                                  # do not list every preset the user never installed
         state = "logged in" if v["logged_in"] else ("installed, NOT logged in" if v["installed"] else "not installed")
         out(f"  {name:<8} {state:<26} {', '.join(v['models'][:6])}{' ...' if len(v['models']) > 6 else ''}")
-    for name in UNSUPPORTED:
-        if shutil.which(name):
-            out(f"  {name:<8} detected, not supported as a runner yet")
     (project / ".orchestrator").mkdir(exist_ok=True)
     save_ais(project, ais)
-    if not ais["claude"]["logged_in"]:
-        out("\nClaude Code is required (planner, builder, retro run on it). Run `claude`, log in, then `lonerchestrator intro` again.")
+    reg = providers.registry(cfg)
+    live = [(c, m) for c, v in ais.items() if v["logged_in"] for m in v["models"]]
+    edit = [(c, m) for c, m in live if reg.get(c, {}).get("can_edit", c in ("claude", "agy"))]
+    if not edit:
+        out("\nNo AI that can edit files is ready. Run `lonerchestrator ais` to install one (Claude Code is the best tested), log in, then `lonerchestrator intro` again.")
         return None
-
-    claude_opts = [(f"claude / {m}", m) for m in CLAUDE_MODELS]
-    all_opts = [(f"claude / {m}", ("claude", m)) for m in CLAUDE_MODELS] + [(f"agy / {m}", ("agy", m)) for m in ais["agy"]["models"]]
+    claude_opts = [(f"{c} / {m}", (c, m)) for c, m in edit]
+    all_opts = [(f"{c} / {m}", (c, m)) for c, m in live]
 
     def default_idx(opts, cur):
         return next((i for i, (_, v) in enumerate(opts) if v == cur), 0)
 
     new = {"roles": {}, "reviewers": [], "agents": dict(cfg["agents"])}
     for role in ("splitter", "planner", "builder", "retro"):
-        cur = cfg["roles"][role]["model"]
-        m = claude_opts[default_idx(claude_opts, cur)][1] if assume_yes else _pick(f"{role}: which Claude model?", claude_opts, default_idx(claude_opts, cur), ask, out)
-        new["roles"][role] = {"cli": "claude", "model": m}
+        cur = (cfg["roles"][role].get("cli", "claude"), cfg["roles"][role]["model"])
+        cli, m = claude_opts[default_idx(claude_opts, cur)][1] if assume_yes else _pick(f"{role}: which AI and model?", claude_opts, default_idx(claude_opts, cur), ask, out)
+        new["roles"][role] = {"cli": cli, "model": m}
     for slot, r in zip(("qa", "cross"), cfg["reviewers"], strict=False):
         cur = (r["kind"], r.get("model"))
         opts = all_opts
@@ -110,7 +120,7 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     f = project / ".orchestrator" / "config.json"
     raw = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
     raw.update(new)
-    in_use = [f"claude/{r['model']}" for r in new["roles"].values()] + [f"{r['kind']}/{r['model']}" for r in new["reviewers"]]
+    in_use = [f"{r['cli']}/{r['model']}" for r in new["roles"].values()] + [f"{r['kind']}/{r['model']}" for r in new["reviewers"]]
     raw["use"] = sorted(set(raw.get("use") or []) | set(in_use))      # the AIs menu (tab 5) lets you check more
     f.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
     out("\nSaved .orchestrator/config.json. This is your pipeline:\n")

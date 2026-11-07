@@ -115,6 +115,8 @@ def ensure_trust(project, cfg):
     if trust.is_trusted(project, cfg):
         return True
     print(f"\nThis project runs this command on your machine for every card:\n\n    {clean(cfg['ci'])}\n\n(from {project / '.orchestrator' / 'config.json'})")
+    for pid, p in (cfg.get("providers") or {}).items():
+        print(f"and it starts this AI program ('{clean(pid)}'): {clean(' '.join(map(str, p.get('cmd', []))))}")
     if not sys.stdin.isatty():
         print("It is not approved yet. Read it, then run:  lonerchestrator trust")
         return False
@@ -149,9 +151,12 @@ def cmd_doctor(a, project):
     print(f"\nlonerchestrator {__version__}  \u00b7  python {platform.python_version()}  \u00b7  {platform.system()}\n")
     py_ok = sys.version_info >= (3, 10)
     line("ok" if py_ok else "fail", f"Python {platform.python_version()}", "" if py_ok else "Python 3.10 or newer is required")
+    other = any(shutil.which(e) for e in ("agy", "codex", "gemini"))          # Claude Code is the best tested, but any AI that can edit files will do
     for exe, need, hint in (("git", True, "install it: https://git-scm.com"),
-                            ("claude", True, "run `lonerchestrator ais` to install it, or see https://code.claude.com/docs/en/setup, then run `claude` once to log in"),
-                            ("agy", False, "optional, adds Gemini models for the second reviewer: `lonerchestrator ais` installs it"),
+                            ("claude", not other, "run `lonerchestrator ais` to install it, or see https://code.claude.com/docs/en/setup, then run `claude` once to log in"),
+                            ("agy", False, "optional: Gemini models. `lonerchestrator ais` installs it"),
+                            ("codex", False, "optional: OpenAI Codex. `lonerchestrator ais` installs it"),
+                            ("gemini", False, "optional: Gemini CLI. `lonerchestrator ais` installs it"),
                             ("bash", False, "runs the default CI script (scripts/ci.sh); on Windows it comes with Git for Windows")):
         found = term.real_bash() if exe == "bash" else shutil.which(exe)
         wsl = bool(found) and exe == "bash" and "windowsapps" in found.lower()          # only the WSL launcher: no usable bash

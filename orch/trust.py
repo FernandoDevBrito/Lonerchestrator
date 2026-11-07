@@ -23,7 +23,11 @@ def _key(project):
 
 
 def _digest(cfg):
-    return hashlib.sha256(cfg["ci"].encode("utf-8")).hexdigest()
+    """What the user approves: the CI command and, when there are any, the AI commands defined in this project's config."""
+    text = cfg["ci"]
+    if cfg.get("providers"):
+        text += "\n" + json.dumps(cfg["providers"], sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def is_trusted(project, cfg):

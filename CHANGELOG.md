@@ -4,6 +4,8 @@
 
 First public version.
 
+- Any AI in any role: presets for Claude Code, Antigravity, Codex, Gemini CLI and Ollama, plus any CLI you describe under `providers` in the config. Custom providers need `lonerchestrator trust`. The AIs tab, intro, doctor and installers list them; the suggested answers can come from any AI (`suggester` role). Codex, Gemini and Ollama presets are untested.
+
 - Pipeline: split, plan (with task list), build, guardrails, CI, parallel independent review, merge, retro.
 - Agents: splitter, planner/builder (per area), qa, retro; cross reviewer through the Antigravity CLI or a second Claude model.
 - Full-screen panel (120x34): Board, Flow, Planner, Agents, AIs.

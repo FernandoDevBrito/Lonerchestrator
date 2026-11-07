@@ -37,6 +37,9 @@ Secret scan of the full git history: nothing found. Static analysis (bandit): on
 
 ## Known limits (what this does NOT protect you from)
 
+- **`.claude/settings.json` only restricts Claude Code.** Other AIs (Codex, Gemini, your own `providers`) are limited by the flags in their provider (`edit_args`, `read_args`), plus the diff guardrails, the `.git` tamper check and the reviewers. Read a provider before trusting it; a provider defined in a project's config runs a program and needs `lonerchestrator trust`.
+- The Codex, Gemini and Ollama presets were written from the vendors' documentation and have not been run by the author.
+
 - **Tests and project code are code.** The allowed `pytest`/CI commands run whatever the project contains; a hostile card, dependency or test file can make them do harmful things. Only run cards and repositories you trust.
 - **Prompt injection is not solved.** Cards, repository files and web pages read by agents can steer them, within the permissions above. The guardrails limit the damage; they cannot read intent.
 - **Ignored files are invisible to the diff guardrails.** An agent can still write inside the project to paths that git ignores (for example a virtual environment). Do not point the tool at a repository that holds production credentials in its working tree.

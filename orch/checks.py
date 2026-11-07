@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 
-from . import config, trust
+from . import config, providers, trust
 from .gitops import Git
 
 PLACEHOLDER = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -45,23 +45,25 @@ def readiness(project, claude_json=None):
     else:
         out.append(("ok", f"Git: base '{cfg['base']}', tree clean", ""))
 
-    # Claude Code
-    c = ais.get("claude")
-    if not c:
-        out.append(("warn", "Claude Code not checked yet", "open the AIs tab and press d"))
-    elif not c.get("installed"):
-        out.append(("fail", "Claude Code is not installed", "run `lonerchestrator ais` to install it, or see https://claude.com/claude-code"))
-    elif not c.get("logged_in"):
-        out.append(("fail", "Claude Code is not logged in", "run `claude` in a terminal, log in, then press d in the AIs tab"))
-    else:
-        out.append(("ok", "Claude Code ready", ""))
+    # the AIs the roles use (Claude Code, Antigravity, Codex, Gemini, Ollama, or anything defined under `providers`)
+    reg = providers.registry(cfg)
+    used = list(dict.fromkeys([r.get("cli", "claude") for r in cfg["roles"].values()] + [r["kind"] for r in cfg["reviewers"]]))
+    for pid in used:
+        c, name = ais.get(pid), reg.get(pid, {}).get("name", pid)
+        if pid not in reg:
+            out.append(("fail", f"'{pid}' is used by a role but not defined", "pick another AI in the AIs tab, or define it under `providers` in .orchestrator/config.json"))
+        elif not c:
+            out.append(("warn", f"{name} not checked yet", "open the AIs tab and press d"))
+        elif not c.get("installed"):
+            out.append(("fail", f"{name} is not installed", f"run `lonerchestrator ais` to install `{reg[pid]['exe']}`" + (", or see https://claude.com/claude-code" if pid == "claude" else ", or pick another AI for its roles in the AIs tab")))
+        elif not c.get("logged_in"):
+            out.append(("fail", f"{name} is not logged in", f"run `{reg[pid]['exe']}` in a terminal, log in, then press d in the AIs tab"))
+        else:
+            out.append(("ok", f"{name} ready", ""))
 
     # reviewers
     revs = cfg["reviewers"]
-    need_agy = [r for r in revs if r["kind"] == "agy"]
-    if need_agy and not ais.get("agy", {}).get("logged_in"):
-        out.append(("fail", "Reviewer needs the Antigravity CLI", "run `agy` and log in, or give that reviewer a Claude model in the AIs tab"))
-    elif len({(r["kind"], r.get("model")) for r in revs}) < len(revs):
+    if len({(r["kind"], r.get("model")) for r in revs}) < len(revs):
         out.append(("warn", "Both reviewers use the same model", "pick different models in the AIs tab: they catch different mistakes"))
     else:
         out.append(("ok", "Two different reviewers", ""))

@@ -5,12 +5,18 @@ Everything is saved to .orchestrator/config.json on every change, so there is no
 import json
 from pathlib import Path
 
-from . import config
+from . import config, providers
 
 CLAUDE_MODELS = ["sonnet", "opus", "haiku"]
-ROLES = ["splitter", "planner", "builder", "retro"]        # run on Claude Code agents
-REVIEWERS = ["qa", "cross"]                                 # any enabled AI
-SLOTS = ROLES + REVIEWERS
+ROLES = ["splitter", "planner", "builder", "retro"]        # must edit files: any AI that can (Claude Code, Codex, Gemini, your own...)
+REVIEWERS = ["qa", "cross"]                                 # only read: any AI at all
+SLOTS = ROLES + ["suggester"] + REVIEWERS                   # suggester = the read-only call that proposes the 3 suggested answers
+EDITORS = ROLES                                             # slots that need can_edit
+
+
+def _can_edit(project, cli):
+    spec = providers.registry(config.load(Path(project))).get(cli)
+    return bool(spec and spec["can_edit"])
 
 
 def available(project):
@@ -20,7 +26,8 @@ def available(project):
         ais = json.loads(f.read_text(encoding="utf-8")).get("ais", {})
     except (OSError, ValueError):
         ais = {}
-    return [(cli, m) for cli in ("claude", "agy") if ais.get(cli, {}).get("logged_in") for m in ais[cli].get("models", [])]
+    order = sorted(ais, key=lambda c: (c not in ("claude", "agy"), ("claude", "agy").index(c) if c in ("claude", "agy") else 0, c))
+    return [(cli, m) for cli in order if ais[cli].get("logged_in") for m in ais[cli].get("models", [])]
 
 
 def keyof(cli, model):
@@ -32,23 +39,23 @@ def enabled(project, avail=None):
     avail = available(project) if avail is None else avail
     use = config.read_raw(project).get("use")
     if use is None:
-        use = [keyof(c, m) for c, m in avail if c == "claude"]
+        use = [keyof(c, m) for c, m in avail if c == "claude"] or [keyof(c, m) for c, m in avail]
     return [keyof(c, m) for c, m in avail if keyof(c, m) in use]
 
 
 def assigned(cfg, slot):
     """Current 'cli/model' key of a role/reviewer slot."""
-    if slot in ROLES:
+    if slot in ROLES or slot == "suggester":
         r = cfg["roles"][slot]
-        return keyof(r.get("cli", "claude"), r.get("model"))
+        return keyof(r.get("cli", "claude"), r.get("model") or providers.DEFAULT_MODEL)
     r = next(x for x in cfg["reviewers"] if x["name"] == slot)
-    return keyof(r["kind"], r.get("model"))
+    return keyof(r["kind"], r.get("model") or providers.DEFAULT_MODEL)
 
 
 def _assign(raw, cfg, slot, key):
     cli, model = key.split("/", 1)
-    if slot in ROLES:
-        raw.setdefault("roles", {})[slot] = {"cli": "claude", "model": model}
+    if slot in ROLES or slot == "suggester":
+        raw.setdefault("roles", {})[slot] = {"cli": cli, "model": model}
     else:
         revs = raw.get("reviewers") or json.loads(json.dumps(cfg["reviewers"]))
         for r in revs:
@@ -65,11 +72,11 @@ def toggle(project, key):
     raw, cfg = config.read_raw(project), config.load(Path(project))
     if key in on:
         left = [k for k in on if k != key]
-        if not any(k.startswith("claude/") for k in left):
-            return "Keep at least one Claude model checked: planner, builder and retro run on Claude Code."
+        if not any(_can_edit(project, k.split("/", 1)[0]) for k in left):
+            return "Keep at least one AI that can edit files checked: planner, builder and retro need one."
         for slot in SLOTS:
             if assigned(cfg, slot) == key:
-                pool = [k for k in left if slot in REVIEWERS or k.startswith("claude/")]
+                pool = [k for k in left if slot not in EDITORS or _can_edit(project, k.split("/", 1)[0])]
                 _assign(raw, cfg, slot, pool[0])
         on = left
         msg = f"{key} unchecked"
@@ -83,7 +90,7 @@ def toggle(project, key):
 
 def options(project, slot):
     on = enabled(project)
-    return [k for k in on if slot in REVIEWERS or k.startswith("claude/")]
+    return [k for k in on if slot not in EDITORS or _can_edit(project, k.split("/", 1)[0])]
 
 
 def cycle(project, slot, delta):

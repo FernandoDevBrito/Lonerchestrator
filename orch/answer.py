@@ -72,15 +72,15 @@ def suggestion_prompt(card, need):
 
 
 def add_suggestions(card, ask=None):
-    """Give every question that lacks three suggested answers its suggestions (one small Claude call for all of them) and save them
+    """Give every question that lacks three suggested answers its suggestions (one small read-only call to the suggester AI, Claude haiku by default, for all of them) and save them
     in the card. Returns True when the card was updated, False when nothing was needed or no usable reply came back."""
     qs = parse(card)
     need = [i for i, q in enumerate(qs) if len(q.options) < 3]
     if not need:
         return False
+    from .suggest import asker, parse_reply
     if ask is None:
-        from .suggest import ask_claude as ask
-    from .suggest import parse_reply
+        ask = asker(card.path.parents[2])
     got = parse_reply(ask(suggestion_prompt(card, [qs[i] for i in need])), len(need))
     if not got:
         return False

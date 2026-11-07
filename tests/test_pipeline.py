@@ -35,6 +35,9 @@ class Fake:
         self.calls.append(role)
         return self.gem
 
+    def provider(self, role, provider, model, prompt, mode="read"):
+        return self.agy(role, model, prompt)
+
 
 def run(project, cfg, log, fake, **kw):
     p = Pipeline(project, cfg, log, fake)

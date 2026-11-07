@@ -41,16 +41,19 @@ def test_unchecking_a_model_in_use_reassigns_the_slot(project):
     assert menu.problems(config.load(project)) == []
 
 
-def test_cannot_uncheck_the_last_claude_model(project):
+def test_cannot_uncheck_the_last_editing_ai(project):
     setup(project)
     menu.toggle(project, "claude/opus")
     menu.toggle(project, "claude/haiku")
     msg = menu.toggle(project, "claude/sonnet")
-    assert "at least one Claude" in msg and "claude/sonnet" in menu.enabled(project)
+    assert "at least one AI that can edit" in msg and "claude/sonnet" in menu.enabled(project)
 
 
-def test_cycle_roles_only_among_enabled_and_claude_only_for_workers(project):
+def test_cycle_roles_only_among_enabled_and_editing_ais_for_workers(project):
     setup(project)
+    raw = config.read_raw(project)
+    raw["providers"] = {"agy": {"can_edit": False}}                                  # a text-only AI can review but not build
+    config.write_raw(project, raw)
     menu.toggle(project, "agy/gemini-3.8-flash-low")
     seen = {menu.assigned(config.load(project), "planner")}
     for _ in range(4):
@@ -77,3 +80,14 @@ def test_problems_flags_unchecked_models_only_after_menu_use(project):
     config.write_raw(project, raw)
     bad = menu.problems(config.load(project))
     assert any("planner" in b for b in bad) and all("not checked" in b for b in bad)
+
+
+def test_any_detected_ai_is_listed_and_can_fill_a_role(project):
+    ais = {**AIS, "codex": {"installed": True, "logged_in": True, "models": ["default"]}}
+    setup(project, ais)
+    assert ("codex", "default") in menu.available(project)
+    menu.toggle(project, "codex/default")
+    assert "codex/default" in menu.options(project, "builder") and "codex/default" in menu.options(project, "suggester")
+    while menu.cycle(project, "builder", 1) and menu.assigned(config.load(project), "builder") != "codex/default":
+        pass
+    assert config.load(project)["roles"]["builder"] == {"cli": "codex", "model": "default"}

@@ -17,7 +17,9 @@ DEFAULTS = {
         "planner": {"cli": "claude", "model": "sonnet"},
         "builder": {"cli": "claude", "model": "sonnet"},
         "retro": {"cli": "claude", "model": "sonnet"},
+        "suggester": {"cli": "claude", "model": "haiku"},      # proposes the 3 suggested answers (read-only: any AI works)
     },
+    "providers": {},                      # AI CLIs you define yourself (see providers.py); they join the presets
     "agents": {"backend": "backend", "frontend": "frontend", "both": "backend"},
     # every reviewer must approve (unless required=false and its CLI is missing)
     "reviewers": [

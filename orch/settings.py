@@ -101,6 +101,9 @@ def set_text(project, key, text):
     _put(raw, key, text)
     config.write_raw(project, raw)
     if key == "ci":
-        trust.trust(project, config.load(Path(project)))
+        cfg = config.load(Path(project))
+        if cfg.get("providers") and not trust.is_trusted(project, cfg):
+            return "CI command saved. This project also defines AI commands: read them and run `lonerchestrator trust`"   # typing a CI command must not approve them
+        trust.trust(project, cfg)
         return "CI command saved and approved"
     return f"{spec(key)[1]} saved"

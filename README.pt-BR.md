@@ -4,7 +4,7 @@
 
 Orquestrador local de agentes de IA. Você escreve **cards** de demanda; agentes planejam, implementam, revisam e corrigem sozinhos, e só param quando o card é aprovado ou precisa de você.
 
-Roda 100% na sua máquina, usando as assinaturas que você já tem logadas (**Claude Code** e, opcionalmente, **Antigravity/Gemini**). Sem chaves de API, sem GitHub Actions, sem servidor.
+Roda 100% na sua máquina, usando as assinaturas que você já tem logadas (**Claude Code** por padrão; Antigravity, Codex, Gemini CLI, Ollama ou qualquer CLI que você descrever também servem). Sem chaves de API, sem GitHub Actions, sem servidor.
 
 ```
  card ─▶ SPLIT ─▶ PLAN ─▶ BUILD ─▶ CHECKS ─▶ REVIEW ─▶ MERGE
@@ -28,7 +28,7 @@ Regras de ouro: **quem faz nunca avalia** (os revisores só veem o card, o diff 
 A lista completa, com como conferir e instalar cada item, está em [`requirements/`](requirements/README.md). O `lonerchestrator doctor` confere tudo, e o `lonerchestrator ais` mostra quais CLIs de IA você tem e instala as que faltam (pergunta antes).
 
 - Python 3.10+ (só biblioteca padrão) e git
-- [Claude Code](https://claude.com/claude-code) logado (`claude`), **obrigatório**: planner, builder, retro e o revisor `qa` rodam nele
+- [Claude Code](https://claude.com/claude-code) logado (`claude`). A IA padrão e a mais testada; qualquer outra IA que edite arquivos pode substituí-lo (veja [Qualquer IA](#qualquer-ia))
 - [Antigravity CLI](https://antigravity.google) logado (`agy`), **opcional**: dá ao revisor `cross` um modelo Gemini (uma família de modelo diferente pega erros diferentes). Sem ele, o `cross` usa um segundo modelo Claude
 - bash, para rodar o `scripts/ci.sh` do projeto (Git Bash no Windows)
 
@@ -188,6 +188,43 @@ Verificados por **código**, não por prompt, antes dos testes:
 ```
 
 `base` é a branch que recebe os cards aprovados. Use outra (ex.: `agents-setup`) para a `main` ficar intocada até você decidir.
+
+## Qualquer IA
+
+Todo papel (splitter, planner, builder, retro, os dois revisores e o sugestor de respostas) pode rodar em **qualquer IA de linha de comando**, não só o Claude Code. Escolha na aba AIs, ou no `.orchestrator/config.json`:
+
+```json
+{
+  "roles": { "builder": { "cli": "codex", "model": "default" }, "suggester": { "cli": "ollama", "model": "llama3" } },
+  "reviewers": [ { "name": "qa", "kind": "gemini", "model": "default" }, { "name": "cross", "kind": "mine" } ],
+  "providers": {
+    "mine": {
+      "name": "Minha IA",
+      "cmd": ["minha-ia", "run"],
+      "model_args": ["--model", "{model}"],
+      "edit_args": ["--allow-edits"],
+      "read_args": ["--read-only"],
+      "prompt_via": "stdin",
+      "models": ["grande", "pequeno"]
+    }
+  }
+}
+```
+
+Um provider é só *como chamar a CLI*: `cmd`, `model_args` (`{model}` é trocado; o modelo `default` não passa nenhum), `edit_args` (vai nos papéis que alteram arquivos), `read_args` (revisores e sugestões) e `prompt_via` (`arg`, o padrão, com `prompt_flag` opcional como `-p`; ou `stdin`). Use `"can_edit": false` para modelos só de texto: eles revisam e sugerem, mas não constroem. Serve qualquer coisa que receba um prompt e imprima uma resposta.
+
+| IA | Como é conhecida | Situação |
+|---|---|---|
+| Claude Code | preset nativo | testado pelo autor |
+| Antigravity (`agy`) | preset | testado pelo autor |
+| OpenAI Codex (`codex exec`) | preset | **escrito pela documentação do fabricante, não rodado aqui**: confira `codex exec --help` |
+| Gemini CLI (`gemini`) | preset | **escrito pela documentação do fabricante, não rodado aqui**: confira `gemini --help` |
+| Ollama (`ollama run`) | preset, só texto | **escrito pela documentação do fabricante, não rodado aqui** |
+| OpenCode, Aider, Goose, seu script... | defina em `providers` | as flags mudam por versão: confira o `--help` da ferramenta |
+
+Dá para mudar um preset do mesmo jeito (uma entrada `codex` em `providers` troca as flags dele). As outras IAs recebem as mesmas instruções dos agentes do Claude (`.claude/agents/<papel>.md` mais o `CLAUDE.md`, colocados no prompt) e os revisores recebem o diff dentro do prompt, então funcionam mesmo se a CLI não lê arquivos.
+
+O que vale para toda IA: os guardrails do diff (caminhos protegidos, tamanho, segredos, testes apagados), a checagem de que a IA não mexeu no `.git`, o comando de CI, os dois revisores independentes e as pausas humanas. O que muda: o `.claude/settings.json` (listas de permitir/negar) só restringe o Claude Code. Nas outras IAs os limites são as flags do provider (`edit_args`/`read_args`, por exemplo um modo sandbox), então leia-as. Como um provider inicia um programa, o que vem na config de um projeto precisa ser aprovado uma vez com `lonerchestrator trust`, como o comando de CI.
 
 ## O que cada projeto ganha
 

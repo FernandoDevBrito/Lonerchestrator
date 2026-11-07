@@ -3,8 +3,11 @@ import json
 import re
 import shutil
 import subprocess
+import threading
 import time
+from pathlib import Path
 
+from . import providers
 from .usage import Usage
 
 RATE = re.compile(r"rate.?limit|quota|usage limit|too many requests|\b429\b|resource.?exhausted|overloaded|limit reached", re.IGNORECASE)
@@ -78,13 +81,29 @@ class Runner:
         return self._run(role, cmd, claude=True)
 
     def agy(self, role, model, prompt):
-        exe = shutil.which("agy") or "agy"
-        return self._run(role, [exe, "--model", model, "--output-format", "json", "-p", prompt], claude=False, model=model)
+        return self.provider(role, "agy", model, prompt, "read")
 
-    def _run(self, role, cmd, claude, model=None):
+    def provider(self, role, pid, model, prompt, mode="read"):
+        """Any AI CLI described in the registry (presets + config `providers`). mode: "edit" may change project files, "read" must not."""
+        reg = providers.registry(self.cfg)
+        if pid not in reg:
+            raise ValueError(f"{role} uses an AI called '{pid}' that is not defined (see `providers` in .orchestrator/config.json)")
+        spec = reg[pid]
+        argv, stdin = providers.build_argv(spec, model, self._fit(prompt, spec, role), mode)
+        return self._run(role, argv, claude=False, model=model, spec=spec, stdin=stdin)
+
+    def _fit(self, prompt, spec, role):
+        """A very long prompt cannot travel as one command-line argument (Windows allows about 32k characters): park it in a file instead."""
+        if spec["prompt_via"] != "arg" or len(prompt) <= 24000:
+            return prompt
+        f = Path(getattr(self.log, "dir", self.project)) / f"prompt-{role}.txt"
+        f.write_text(prompt, encoding="utf-8")
+        return f"Your full instructions are in the file {f.as_posix()}. Read it and do exactly what it says."
+
+    def _run(self, role, cmd, claude, model=None, spec=None, stdin=None):
         rl, n = self.cfg["rate_limit"], 0
         while True:
-            rc, answer, raw = self._once(role, cmd, claude, model)
+            rc, answer, raw = self._once(role, cmd, claude, model, spec, stdin)
             if rc == 0:
                 return answer
             if AUTH.search(raw):
@@ -100,9 +119,17 @@ class Runner:
                 continue
             return answer or raw   # unknown failure: pipeline sees no marker/verdict and blocks safely
 
-    def _once(self, role, cmd, claude, model=None):
-        p = subprocess.Popen(cmd, cwd=self.project, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, encoding="utf-8", errors="replace")
+    def _once(self, role, cmd, claude, model=None, spec=None, stdin=None):
+        p = subprocess.Popen(cmd, cwd=self.project, stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        if stdin is not None:                      # written from a thread so a big prompt cannot deadlock against our reading of the output
+            def feed():
+                try:
+                    p.stdin.write(stdin)
+                    p.stdin.close()
+                except OSError:
+                    pass
+            threading.Thread(target=feed, daemon=True).start()
         raw, shown, final = [], [], None
         for line in p.stdout:
             raw.append(line)
@@ -120,15 +147,18 @@ class Runner:
                 if claude or self.cfg.get("verbose"):
                     self.log.say(role, out)
         rc = p.wait()
-        if not claude:                          # agy prints one JSON object: answer text + token usage
-            try:
-                obj = json.loads("".join(raw))
-                self.usage.feed_agy(obj, role, model or "?")
-                shown = [obj.get("response", "")]
-                self.log.say(role, shown[0] if self.cfg.get("verbose") else brief(shown[0], keep=8))
-            except (ValueError, AttributeError):
-                if shown and not self.cfg.get("verbose"):
-                    self.log.say(role, brief("".join(shown), keep=8))
+        if not claude:
+            spec = spec or providers.registry(self.cfg)["agy"]
+            answer, u = providers.parse_output(spec, "".join(raw))
+            if u is not None:                    # the CLI reported its tokens (agy)
+                self.usage.add(spec["id"], model or "?", role, u["in"], u["out"], 0.0, u["secs"])
+            else:                                # most CLIs report nothing: at least count the call
+                self.usage.add(spec["id"], model or providers.DEFAULT_MODEL, role, 0, 0)
+            if answer and not self.cfg.get("verbose"):
+                self.log.say(role, brief(answer, keep=8))
+            elif answer and spec["output"] != "text":
+                self.log.say(role, answer)
+            return rc, answer, "".join(raw)
         return rc, (final if final is not None else "".join(shown)), "".join(raw)
 
     def _count(self, line, role):

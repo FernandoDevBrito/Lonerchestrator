@@ -28,9 +28,12 @@ def test_intro_interactive_picks(project):
     assert raw["reviewers"][1] == {"name": "cross", "kind": "claude", "model": "haiku", "required": True, "agent": "qa"}
 
 
-def test_intro_requires_claude(project):
-    off = {**AIS, "claude": {"installed": True, "logged_in": False, "models": []}}
+def test_intro_needs_one_ai_that_can_edit(project):
+    off = {name: {"installed": True, "logged_in": False, "models": []} for name in AIS}
     assert intro.run_intro(project, assume_yes=True, ais=off, out=lambda *_: None) is None
+    only_agy = {**off, "agy": AIS["agy"]}                       # Claude is optional now: any AI that can edit files will do
+    raw = intro.run_intro(project, assume_yes=True, ais=only_agy, out=lambda *_: None)
+    assert raw["roles"]["builder"]["cli"] == "agy"
 
 
 def test_stage_status_resets_later_stages_on_retry():

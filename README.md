@@ -4,7 +4,7 @@
 
 A **local multi-agent orchestrator** for AI coding agents. You write small *cards* describing what you want; agents plan, implement, review and fix them on their own, and only stop when a card is approved or needs a human.
 
-It runs entirely on your machine, on the AI subscriptions you are already logged in to (**Claude Code** and, optionally, the **Antigravity CLI** for Gemini models). No API keys, no hosted service, no GitHub Actions, no server.
+It runs entirely on your machine, on the AI subscriptions you are already logged in to (**Claude Code** by default; Antigravity, Codex, Gemini CLI, Ollama or any CLI you describe also work). No API keys, no hosted service, no GitHub Actions, no server.
 
 ```
  card ─▶ SPLIT ─▶ PLAN ─▶ BUILD ─▶ CHECKS ─▶ REVIEW ─▶ MERGE
@@ -33,7 +33,7 @@ The full list, with how to check and install each item, is in [`requirements/`](
 |---|---|
 | Python | 3.10+ (standard library only, no dependencies). With uv you do not even need to install it |
 | git | any recent version |
-| [Claude Code](https://claude.com/claude-code) | installed **and logged in** (`claude`). Required: planner, builder, retro and the `qa` reviewer run on it |
+| [Claude Code](https://claude.com/claude-code) | installed **and logged in** (`claude`). The default and best-tested AI. Any other AI that can edit files can replace it (see [Any AI](#any-ai)) |
 | [Antigravity CLI](https://antigravity.google) `agy` | optional. Gives the `cross` reviewer a Gemini model (a different model family catches different mistakes). Without it, `cross` is a second Claude model |
 | bash | to run your project's `scripts/ci.sh` (Git Bash on Windows) |
 
@@ -190,6 +190,43 @@ Checked by **code**, not by prompts, before CI runs:
 ```
 
 `base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide.
+
+## Any AI
+
+Every role (splitter, planner, builder, retro, the two reviewers and the answer suggester) can run on **any AI command-line tool**, not only Claude Code. Pick them in the AIs tab, or in `.orchestrator/config.json`:
+
+```json
+{
+  "roles": { "builder": { "cli": "codex", "model": "default" }, "suggester": { "cli": "ollama", "model": "llama3" } },
+  "reviewers": [ { "name": "qa", "kind": "gemini", "model": "default" }, { "name": "cross", "kind": "mine" } ],
+  "providers": {
+    "mine": {
+      "name": "My AI",
+      "cmd": ["my-ai", "run"],
+      "model_args": ["--model", "{model}"],
+      "edit_args": ["--allow-edits"],
+      "read_args": ["--read-only"],
+      "prompt_via": "stdin",
+      "models": ["big", "small"]
+    }
+  }
+}
+```
+
+A provider is just *how to call the CLI*: `cmd`, `model_args` (`{model}` is replaced; the model `default` passes none), `edit_args` (added for roles that change files) and `read_args` (added for reviewers and suggestions), and `prompt_via` (`arg`, the default, with an optional `prompt_flag` such as `-p`; or `stdin`). Set `"can_edit": false` for text-only models: they can review and suggest but not build. Anything that takes a prompt and prints an answer works.
+
+| AI | How it is known | Status |
+|---|---|---|
+| Claude Code | native preset | tested by the author |
+| Antigravity (`agy`) | preset | tested by the author |
+| OpenAI Codex (`codex exec`) | preset | **written from the vendor docs, not run here**: check `codex exec --help` |
+| Gemini CLI (`gemini`) | preset | **written from the vendor docs, not run here**: check `gemini --help` |
+| Ollama (`ollama run`) | preset, text only | **written from the vendor docs, not run here** |
+| OpenCode, Aider, Goose, your own script... | define it under `providers` | flags differ per version: check the tool's `--help` |
+
+You can change a preset the same way (an entry named `codex` in `providers` overrides its flags). Other AIs get the same instructions as the Claude agents (`.claude/agents/<role>.md` plus `CLAUDE.md`, put in the prompt) and the reviewers get the diff written into the prompt, so they work even if the CLI cannot read files.
+
+What stays the same for every AI: the guardrails on the diff (protected paths, size, secrets, deleted tests), the check that an AI did not touch `.git`, the CI command, the two independent reviewers and the human gates. What is different: `.claude/settings.json` (its allow/deny lists) only restricts Claude Code. For every other AI the limits are the flags in its provider (`edit_args`/`read_args`, e.g. a sandbox mode), so read them. Because a provider starts a program, a provider defined in a project's config must be approved once with `lonerchestrator trust`, like the CI command.
 
 ## What each project gets
 

@@ -5,7 +5,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import answer, guardrails, menu, term
+from . import answer, guardrails, menu, providers, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -34,6 +34,9 @@ class _Guarded:
     def agy(self, *a, **kw):
         return self._call(self.runner.agy, *a, **kw)
 
+    def provider(self, *a, **kw):
+        return self._call(self.runner.provider, *a, **kw)
+
 
 class Pipeline:
     def __init__(self, project, cfg, log, runner, base=None):
@@ -45,6 +48,22 @@ class Pipeline:
     def _m(self, role):
         return self.cfg["roles"][role].get("model")
 
+    def _instructions(self, agent):
+        """Claude Code has its own agents (.claude/agents/<name>.md). Every other AI gets the same role text, plus the project rules, in the prompt."""
+        def body(path):
+            t = path.read_text(encoding="utf-8") if path.is_file() else ""
+            return t.split("---", 2)[2].strip() if t.startswith("---") and t.count("---") >= 2 else t.strip()
+        agent_md, rules = body(self.p / ".claude" / "agents" / f"{agent}.md"), body(self.p / "CLAUDE.md")[:8000]
+        return f"# Your role: {agent}\n{agent_md}\n\n# Project rules (CLAUDE.md)\n{rules}\n\n# Your task\n"
+
+    def _ask(self, role, agent, prompt, mode="edit"):
+        """Run one role on whichever AI the config gives it (Claude Code natively, anything else through the provider registry)."""
+        spec = self.cfg["roles"][role]
+        pid = spec.get("cli", "claude")
+        if pid == "claude":
+            return self.run_.claude(role, agent, prompt, model=spec.get("model"))
+        return self.run_.provider(role, pid, spec.get("model"), self._instructions(agent) + prompt, mode)
+
     # ---------- run ----------
     def preflight(self):
         if not self.git.has_branch(self.base):
@@ -52,12 +71,17 @@ class Pipeline:
         bad = menu.problems(self.cfg)
         if bad:
             raise SystemExit("; ".join(bad) + ". Open the AIs tab (key 5) in `lonerchestrator` to fix it.")
-        for r in self.cfg["reviewers"]:
-            exe = {"claude": "claude", "agy": "agy"}[r["kind"]]
-            if r.get("required", True) and not shutil.which(exe):
-                raise SystemExit(f"reviewer '{r['name']}' needs the '{exe}' CLI. Install it, or run `lonerchestrator intro` to pick another reviewer")
-        if not shutil.which("claude"):
-            raise SystemExit("claude CLI not found")
+        reg = providers.registry(self.cfg)
+        used = [(role, self.cfg["roles"][role], True) for role in ("planner", "builder", "retro") + (("splitter",) if self.cfg["split"] else ())]
+        used += [(r["name"], {"cli": r["kind"], "model": r.get("model")}, r.get("required", True)) for r in self.cfg["reviewers"]]
+        for label, s, required in used:
+            spec = reg.get(s.get("cli", "claude"))
+            if spec is None:
+                raise SystemExit(f"{label} uses an AI called '{s.get('cli')}' that is not defined. Pick another in the AIs tab or define it under `providers` in .orchestrator/config.json")
+            if label in ("planner", "builder", "retro", "splitter") and not spec["can_edit"]:
+                raise SystemExit(f"{label} uses {spec['name']}, which cannot edit files. Give that role an AI that can (AIs tab), keep {spec['name']} for reviewing")
+            if required and not shutil.which(spec["exe"]):
+                raise SystemExit(f"{label} needs {spec['name']} ('{spec['exe']}' is not installed). Run `lonerchestrator ais` to install it, or pick another AI for {label} in the AIs tab")
 
     def run(self, only=None):
         self.git.checkout(self.base)
@@ -114,7 +138,7 @@ class Pipeline:
         # PLAN (+ tasks): the planner never changes code; vague cards stop here
         self.log.state(card=cid, phase="plan")
         t = time.time()
-        out = self.run_.claude("planner", agent, model=self._m("planner"), prompt=f"PHASE=PLAN. Card: {card.path.as_posix()}. Follow your agent instructions and CLAUDE.md.")
+        out = self._ask("planner", agent, f"PHASE=PLAN. Card: {card.path.as_posix()}. Follow your agent instructions and CLAUDE.md.")
         self.log.artifact(cid, "plan.txt", out)
         m = marker(out)
         if m == "BLOCKED":
@@ -133,7 +157,7 @@ class Pipeline:
             # BUILD
             self.log.state(card=cid, phase=f"build {n}/{g['max_attempts']}")
             t = time.time()
-            out = self.run_.claude("builder", agent, model=self._m("builder"), prompt=f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. "
+            out = self._ask("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. "
                                    f"Card: {card.path.as_posix()}. Feedback from the previous attempt (empty on the first): {feedback.as_posix()}")
             self.log.artifact(cid, f"build{n}.txt", out)
             if marker(out) == "BLOCKED":
@@ -189,7 +213,7 @@ class Pipeline:
         cid, t = card.id, time.time()
         before = {c.id for c in self.board.cards("backlog")}
         self.log.state(card=cid, phase="split")
-        out = self.run_.claude("splitter", "splitter", model=self._m("splitter"), prompt=f"Split-or-keep decision for card {card.path.as_posix()}.")
+        out = self._ask("splitter", "splitter", f"Split-or-keep decision for card {card.path.as_posix()}.")
         self.log.artifact(cid, "split.txt", out)
         m = marker(out)
         kids = [c for c in self.board.cards("backlog") if c.id not in before]
@@ -217,10 +241,13 @@ class Pipeline:
         def one(r):
             if r["kind"] == "claude":
                 o = self.run_.claude(r["name"], r["agent"], f"Evaluate card {cid}. {card_note} Follow your agent instructions.", model=r.get("model"))
-            else:
-                if not r.get("required", True) and not shutil.which("agy"):
-                    return r["name"], ("APPROVED", "skipped: agy not installed")
-                o = self.run_.agy(r["name"], r["model"], f"Read GEMINI.md, then read {review.as_posix()} and review it exactly as GEMINI.md says. Do not run commands or edit files.")
+            else:                                # any other AI: same instructions, and the review input INLINED (it may not be able to read files)
+                spec = providers.registry(self.cfg).get(r["kind"])
+                if spec is None or (not r.get("required", True) and not shutil.which(spec["exe"])):
+                    return r["name"], ("APPROVED", f"skipped: {r['kind']} not installed")
+                text = review.read_text(encoding="utf-8", errors="replace")[:60000]
+                o = self.run_.provider(r["name"], r["kind"], r.get("model"),
+                                       self._instructions(r.get("agent", "qa")) + f"Evaluate card {cid}. Do not run commands or edit files.\n\n# REVIEW INPUT\n{text}", "read")
             return r["name"], (verdict(o), o)
         with ThreadPoolExecutor(len(self.cfg["reviewers"])) as ex:
             return dict(ex.map(one, self.cfg["reviewers"]))
@@ -258,7 +285,7 @@ class Pipeline:
     def _retro(self, card, status, attempts):
         self.log.state(card=card.id, phase="retro")
         t = time.time()
-        self.run_.claude("retro", "retro", model=self._m("retro"), prompt=f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")
+        self._ask("retro", "retro", f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")
         self.log.event("retro", card.id, "retro", "ok", time.time() - t)
         hist = self.p / "context" / "history.md"
         hist.parent.mkdir(exist_ok=True)

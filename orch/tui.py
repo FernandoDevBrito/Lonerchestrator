@@ -495,13 +495,16 @@ def usage_summary(x):
 def ai_rows(x):
     """Checklist rows: ('head', text) or ('item', key). Items are the selectable AI models."""
     rows = []
-    for cli, label in (("claude", "Claude Code"), ("agy", "Antigravity")):
+    clis = ["claude", "agy"] + [c for c, v in x.ais.items() if c not in ("claude", "agy") and v.get("installed")]
+    for cli in clis:
+        label = {"claude": "Claude Code", "agy": "Antigravity"}.get(cli) or x.ais[cli].get("name") or cli
         info = x.ais.get(cli, {})
         state = "logged in" if info.get("logged_in") else ("not logged in" if info.get("installed") else "not installed")
         rows.append(("head", cli, label, state if info else "not detected \u00b7 press d"))
         if info and not info.get("logged_in"):
             how = {"claude": "install: https://claude.com/claude-code" if not info.get("installed") else "run `claude`, log in, then press d",
-                   "agy": "optional, Gemini models: antigravity.google" if not info.get("installed") else "run `agy`, log in, then press d"}[cli]
+                   "agy": "optional, Gemini models: antigravity.google" if not info.get("installed") else "run `agy`, log in, then press d"}.get(cli) \
+                or f"run `{cli}` once to sign in or pull a model, then press d"
             rows.append(("hint", how))
         rows += [("item", menu.keyof(c, m)) for c, m in x.avail if c == cli]
     return rows
@@ -509,7 +512,7 @@ def ai_rows(x):
 
 def short_key(key):
     cli, model = key.split("/", 1)
-    return model if cli == "claude" else f"agy · {model}"
+    return model if cli == "claude" else f"{cli} · {model}"
 
 
 def screen_ais(x):
@@ -543,7 +546,7 @@ def screen_ais(x):
         else:
             lines.append("   " + (paint("ok", "◉") if key in x.on else paint("faint", "○")) + " " + paint("text" if key in x.on else "dim", f"{clip(key.split('/', 1)[1], 24):<25}")
                          + paint("info", tag))
-    room = CH - 12
+    room = CH - 13
     start = min(max(sel_line - room // 2, 0), max(len(lines) - room, 0))
     out = [" " + rule(lw - 9, "Use these AIs") + paint("dim", f" {len(x.on)} on ")]
     out += (lines[start:start + room] or [paint("dim", "   no AI detected · press d")])
@@ -557,7 +560,7 @@ def screen_ais(x):
             out.append(selrow(f"   {slot:<10}‹ {clip(val, 34)} ›", lw))
         else:
             out.append(f"   {paint('text', f'{slot:<10}')}" + paint("text" if ok else "fail", f"  {clip(val, 34)}") + ("" if ok else paint("fail", " !")))
-        if slot == "retro":
+        if slot == "suggester":
             out.append(" " + paint("faint", "   reviewers"))
     same = menu.assigned(x.cfg, "qa") == menu.assigned(x.cfg, "cross")
     out.append(" " + (paint("running", "  ! qa and cross use the same model") if same else ""))
@@ -573,6 +576,8 @@ def screen_ais(x):
         u.append(paint("fail", f" status: {x.limits.get('status')}"))
     u += [""] + usage_table(x.run_use, x.all_use, "claude")
     u += ["", " " + paint("bold", "Antigravity") + paint("dim", "   quota not shown by agy · tokens only")] + usage_table(x.run_use, x.all_use, "agy")
+    for cli in sorted(c for c in x.all_use if c not in ("claude", "agy")):
+        u += ["", " " + paint("bold", x.ais.get(cli, {}).get("name") or cli) + paint("dim", "   calls and tokens when the CLI reports them")] + usage_table(x.run_use, x.all_use, cli)
     probe = usage.PROBE
     u += ["", " " + paint("info", ("⠿ " if probe["running"] else "") + (x.ui.msg or probe["msg"]))]
     right = fit(u, CH, 62)

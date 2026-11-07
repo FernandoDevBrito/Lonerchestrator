@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 
-from . import usage
+from . import config, providers, trust, usage
 
 
 def ask_claude(prompt, cwd=None, model="haiku", timeout=120):
@@ -30,6 +30,24 @@ def ask_claude(prompt, cwd=None, model="haiku", timeout=120):
         elif ev.get("type") == "result" and not ev.get("is_error"):
             text = ev.get("result")
     return text if p.returncode == 0 else None
+
+
+def asker(project):
+    """ask(prompt) -> text|None for the AI the config gives the `suggester` role (read-only call: no edit flags, nothing but the question text).
+    A custom AI from the project's config is only used once the project is trusted (it runs a command)."""
+    from pathlib import Path
+    cfg = config.load(Path(project))
+    role = cfg["roles"].get("suggester") or {"cli": "claude", "model": "haiku"}
+    cli, model = role.get("cli", "claude"), role.get("model")
+
+    def ask(prompt):
+        if cli == "claude":
+            return ask_claude(prompt, model=model or "haiku")
+        spec = providers.registry(cfg).get(cli)
+        if not spec or not providers.installed(spec) or (cfg.get("providers") and not trust.is_trusted(project, cfg)):
+            return None
+        return providers.run_text(spec, model, prompt, "read", cwd=project)
+    return ask
 
 
 def parse_reply(text, n):

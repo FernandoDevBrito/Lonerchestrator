@@ -1,6 +1,7 @@
 """`lonerchestrator ais`: which AI CLIs are on this computer, and an offer to install the missing ones with their official installers.
 Pure enough to test: `which`, `run`, `ask` and `system` are injected, so tests never execute a real installer."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ def find(entry, which=shutil.which, system=None):
         return found
     dirs = list(entry["dirs"]) + (entry["win_dirs"] if (system or _system()) == "windows" else [])
     for d in dirs:
+        d = re.sub(r"%(\w+)%", lambda m: os.environ.get(m.group(1), m.group(0)), d)      # %VAR% is only expanded by os.path on Windows
         base = Path(os.path.expanduser(os.path.expandvars(d)))
         for name in (entry["exe"], entry["exe"] + ".exe"):
             if (base / name).is_file():

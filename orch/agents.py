@@ -53,7 +53,7 @@ def brief(text, width=150, keep=2):
     shown = lines[:keep] + [ln for ln in lines[keep:] if ln.startswith(("RESULT:", "VERDICT:"))]
     out = [ln if len(ln) <= width else ln[: width - 2] + ".." for ln in shown]
     if len(lines) > len(shown):
-        out.append(f"  (+{len(lines) - len(shown)} more lines, full text saved in .orchestrator/runs)")
+        out.append(f"  (+{len(lines) - len(shown)} more lines, full text in the run folder)")
     return chr(10).join(out)
 
 

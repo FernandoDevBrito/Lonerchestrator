@@ -41,16 +41,16 @@ def test_screens_show_their_content(project):
     add_card(project)
     seed_running(project)
     board, flow, planner, agents = ("\n".join(lines(project, s)) for s in range(4))
-    assert "TO DO" in board and "Add thing" in board and "NEEDS YOU" in board
-    assert "REVIEW" in flow and "qa OK" in flow and "RUNNING" in flow and "SPLIT" in flow
-    assert "GOAL" in planner and "ACCEPTANCE CRITERIA" in planner and "[ ] thing() returns 1" in planner
+    assert "To do" in board and "Add thing" in board and "Needs you" in board and "001" in board
+    assert "REVIEW" in flow and "qa ✓" in flow and "SPLIT" in flow and "BUILD" in flow and "Activity" in flow
+    assert "Goal" in planner and "Criteria" in planner and "○ thing() returns 1" in planner
     assert "builder" in agents and "RESULT: DONE" in agents
-    assert "reviewing: qa OK, cross thinking" in flow
+    assert "reviewing · qa ✓  cross" in flow
 
 
 def test_planner_checklist_keeps_wrapped_text():
     out = tui.checklist("- [ ] " + "word " * 40 + "\n- [x] done task", 40)
-    assert out[0].startswith("[ ] word") and out[1].startswith("    word") and any("[x] done task" in ln for ln in out)
+    assert out[0].startswith("○ word") and out[1].startswith("  word") and any("✓ done task" in ln for ln in out)
     assert all("word" in ln for ln in out[:-1])
 
 
@@ -109,16 +109,16 @@ def test_ais_tab_shows_checklist_roles_and_live_usage(project):
     u.add("claude", "sonnet", "builder", 120_000, 3_100)
     u.add("agy", "gemini-4-argon-high", "cross", 18_000, 40)
     out = "\n".join(lines(project, 4))
-    assert "[x] sonnet" in out and "[ ] gemini-4-argon-high" in out and "WHO DOES WHAT" in out
-    assert "52%" in out and "19%" in out and "resets in 2h 15m" in out and "not exposed by agy" in out
-    assert "120.0k" in out and "18.0k" in out
+    assert "◉ sonnet" in out and "○ gemini-4-argon-high" in out and "Who does what" in out and "Use these AIs" in out
+    assert "52%" in out and "19%" in out and "resets in 2h 15m" in out and "not shown by agy" in out
+    assert "123.1k" in out and "18.0k" in out
     head = out.split("\n")[0]
-    assert "claude ● 5h 52% wk 19%" in head and "agy ● 18.0k tok" in head
+    assert "● claude 5h 52% wk 19%" in head and "● agy 18.0k tok" in head
 
 
 def test_ais_tab_without_data_does_not_crash(project):
     out = "\n".join(lines(project, 4))
-    assert "not detected yet" in out and "no data yet" in out
+    assert "not detected" in out and "no data yet" in out
 
 
 def test_ais_tab_keys_toggle_cycle_and_refresh(project, monkeypatch):

@@ -1,5 +1,6 @@
-"""Full-screen TUI, fixed size 120x34: tabs Board | Flow (n8n style) | Planner | Agents. Keyboard driven.
-render() is pure (files in, string out) so every screen is testable for exact alignment."""
+"""Full-screen panel, fixed size 120x34. Tabs: Board | Flow | Planner | Agents | AIs. Keyboard driven.
+render() is pure (files in, string out) so every screen is testable for exact alignment.
+Look: 256-color theme, almost no borders, one-line cards, glyphs instead of words."""
 import os
 import re
 import shutil
@@ -10,18 +11,24 @@ from pathlib import Path
 
 from . import config, menu, term, usage
 from .board import Board, Card
-from .view import NOW, PHASE_IDX, _json, _sentence, load_events, reviewer_status, stage_status
+from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
 
 W, H = 120, 34
 CH = H - 5                                   # content rows: header, tabs, rule, [content], now, keys
 TABS = ["Board", "Flow", "Planner", "Agents", "AIs"]
-COLS = [("TO DO", "backlog", "pending"), ("DOING", "doing", "running"), ("DONE", "done", "ok"), ("NEEDS YOU", "blocked", "fail")]
-CODE = {"ok": "32", "running": "33", "fail": "31", "pending": "90", "info": "36", "accent": "35", "sel": "7", "bold": "1", "text": "0"}
+COLS = [("To do", "backlog", "dim"), ("Doing", "doing", "running"), ("Done", "done", "ok"), ("Needs you", "blocked", "fail")]
+CODE = {"text": "38;5;252", "bold": "1;38;5;255", "dim": "38;5;243", "faint": "38;5;239", "pending": "38;5;243",
+        "ok": "38;5;78", "running": "38;5;214", "fail": "38;5;203", "info": "38;5;110", "accent": "1;38;5;80",
+        "sel": "48;5;237;38;5;255", "tab": "1;38;5;80;48;5;236"}
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+GLYPH = {"ok": "✓", "fail": "×", "pending": "○"}
+SHORT = {"split": "splitting the card", "plan": "planning", "build": "building", "guardrails": "checking the rules", "ci": "running tests",
+         "merge": "merging", "retro": "saving lessons"}
 COLOR = True
 
 
+# --------------------------------------------------------------------------- drawing helpers
 def paint(kind, s):
     return f"\x1b[{CODE[kind]}m{s}\x1b[0m" if COLOR and s else s
 
@@ -34,26 +41,38 @@ def pad(s, w):
     return s + " " * (w - vlen(s))
 
 
+def center(s, w):
+    gap = max(w - vlen(s), 0)
+    return " " * (gap // 2) + s + " " * (gap - gap // 2)
+
+
 def clip(s, w):
     return s if len(s) <= w else s[: max(w - 1, 0)] + "…"
 
 
-def box(lines, w, h, title="", kind="pending", right=""):
+def clip_ansi(s, w):
+    return s if vlen(s) <= w else clip(ANSI.sub("", s), w)
+
+
+def rule(w, title="", kind="faint", tkind="accent"):
+    if not title:
+        return paint(kind, "─" * w)
+    t = f" {clip(title, w - 6)} "
+    return paint(kind, "──") + paint(tkind, t) + paint(kind, "─" * max(w - 2 - len(t), 0))
+
+
+def box(lines, w, h, title="", kind="faint", right="", tkind="bold"):
     """Rounded box exactly w x h. Body lines may carry colors but must be <= w-2 visible."""
     t = f" {title} " if title else ""
     r = f" {right} " if right else ""
-    fill = max(w - 2 - len(t) - len(r) - 1, 0)
-    top = "╭─" + t + "─" * fill + r + "╮"
-    top = top[: w - 1] + "╮" if len(top) > w else top
-    out = [paint(kind, pad(top, w))]
+    if w - 3 - len(t) - len(r) < 0:
+        t, r = clip(t, max(w - 4, 0)), ""
+    fill = max(w - 3 - len(t) - len(r), 0)
+    out = [paint(kind, "╭─") + paint(tkind, t) + paint(kind, "─" * fill) + paint("dim", r) + paint(kind, "╮")]
     body = list(lines)[: h - 2] + [""] * max(h - 2 - len(lines), 0)
     out += [paint(kind, "│") + pad(clip_ansi(b, w - 2), w - 2) + paint(kind, "│") for b in body]
     out.append(paint(kind, "╰" + "─" * (w - 2) + "╯"))
     return out
-
-
-def clip_ansi(s, w):
-    return s if vlen(s) <= w else clip(ANSI.sub("", s), w)
 
 
 def hcat(blocks, gap=1):
@@ -63,6 +82,11 @@ def hcat(blocks, gap=1):
 def fit(lines, h, w=W):
     lines = [pad(clip_ansi(ln, w), w) for ln in lines][:h]
     return lines + [" " * w] * (h - len(lines))
+
+
+def selrow(text, w):
+    """Highlighted row: strip inner colors so the background is continuous."""
+    return paint("sel", pad(clip(ANSI.sub("", text), w), w))
 
 
 # --------------------------------------------------------------------------- context
@@ -91,9 +115,9 @@ class Ctx:
         self.avail = menu.available(self.project)
         self.on = menu.enabled(self.project, self.avail)
         self.limits = usage.read_limits().get("claude", {})
-        run_id = self.st.get("run")
-        runs =sorted((self.project / ".orchestrator" / "runs").glob("*")) if (self.project / ".orchestrator" / "runs").exists() else []
-        self.run_use = usage.run_totals(self.project, run_id or (runs[-1].name if runs else None))
+        runs_dir = self.project / ".orchestrator" / "runs"
+        runs = sorted(runs_dir.glob("*")) if runs_dir.exists() else []
+        self.run_use = usage.run_totals(self.project, self.st.get("run") or (runs[-1].name if runs else None))
         self.all_use = usage.all_totals(self.project)
         self.clamp()
 
@@ -112,162 +136,170 @@ class Ctx:
         return [(ci, ri) for ci, (_, k, _) in enumerate(COLS) for ri in range(len(self.items[k]))]
 
     def tries(self):
-        return self.phase.split()[1].split("/")[0] if " " in self.phase else None
+        return int(self.phase.split()[1].split("/")[0]) if " " in self.phase else None
+
+    def glyph(self, status):
+        return self.spin if status == "running" else GLYPH[status]
 
     def now(self):
         if self.cur is None:
             blocked = self.items["blocked"]
-            return (paint("fail", f"NEEDS YOU: {blocked[-1].id} - answer its questions and move it back to backlog") if blocked
-                    else "idle - add a card with `lonerchestrator new` and press r to run")
+            if blocked:
+                return paint("fail", f"▸ {blocked[-1].id.split('-')[0]} needs you") + paint("dim", " · open the Planner tab (3) to read the questions")
+            return paint("dim", "▸ idle · press r to run the backlog")
         if self.cur == PHASE_IDX["review"]:
-            return "reviewing: " + ", ".join(f"{k} {'OK' if v == 'ok' else 'NO' if v == 'fail' else 'thinking'}" for k, v in self.revs.items())
-        return NOW.get(self.phase.split()[0], self.phase) + (f" (try {self.tries()} of {self.cfg['max_attempts']})" if self.tries() else "")
+            g = {"ok": paint("ok", "✓"), "fail": paint("fail", "×"), "running": paint("running", self.spin), "pending": "·"}
+            return "▸ reviewing · " + "  ".join(f"{k} {g[v]}" for k, v in self.revs.items())
+        t = f" · try {self.tries()}/{self.cfg['max_attempts']}" if self.tries() else ""
+        return paint("running", f"▸ {SHORT.get(self.phase.split()[0], self.phase)}") + paint("dim", t)
+
+
+def event_line(e, w):
+    bad = any(b in (e.get("result", "") + e["kind"]).lower() for b in ("fail", "violation", "reject", "blocked", "invalid"))
+    k, r, a = e["kind"], e.get("result", ""), e["agent"]
+    text = ("tests " + r.split(":")[-1].strip().lower()) if k == "ci" else (f"{a} {r.lower()}" if k == "review" else (f"{a} {r or k}" if a != "-" else (r or k)))
+    dot = paint("fail", "×") if bad else paint("ok", "✓") if any(w_ in text for w_ in ("pass", "approved", "done", "planned", "merged", "ok")) else paint("dim", "•")
+    return " " + paint("dim", f"{e['ts'][-8:-3]}  {e['card'].split('-')[0]:<4}") + f" {dot} " + paint("text", clip(text, w - 16))
 
 
 # --------------------------------------------------------------------------- screens
 def screen_board(x):
-    widths = [30, 29, 29, 29]
+    widths, gap, margin = [27, 27, 27, 26], 3, 2
     blocks = []
     for ci, (title, key, kind) in enumerate(COLS):
-        w, lines = widths[ci], []
+        w, rows = widths[ci], []
+        n = len(x.items[key])
+        rows.append(paint(kind if kind != "dim" else "text", "● ") + paint("bold", title) + paint("dim", f"  {n}"))
+        rows.append(paint(kind if kind != "dim" else "faint", "━" * w))
         for ri, c in enumerate(x.items[key]):
-            running = c.id == x.st.get("card") and key == "doing"
-            sel = ci == x.ui.col and ri == x.ui.row
-            l1 = clip(("▶ " if running else "") + c.title, w - 4)
-            tries = c.get("attempts", "0")
-            l2 = clip(f"{c.id.split('-')[0]} · {c.area} · {tries} {'try' if tries == '1' else 'tries'}", w - 4)
-            for ln, base in ((l1, "text"), (l2, "pending")):
-                s = " " + pad(ln, w - 4) + " "
-                lines.append(paint("sel", s) if sel else paint(base, s))
-            lines.append("")
-        if not lines:
-            lines = [paint("pending", " (empty)")]
-        count = len(x.items[key])
-        blocks.append(box(lines, w, CH, title, kind, str(count)))
-    return hcat(blocks)
+            running = key == "doing" and c.id == x.st.get("card")
+            tries = int(c.get("attempts", "0") or 0)
+            ident = c.id.split("-")[0] + (f" ({tries})" if tries > 1 else "")
+            mark = x.spin if running else "▎"
+            title_c = clip(c.title, w - len(ident) - 4)
+            if ci == x.ui.col and ri == x.ui.row:
+                rows.append(selrow(pad(f"{mark} {title_c}", w - len(ident) - 1) + " " + ident, w))
+            else:
+                colored = paint("running" if running else (kind if kind != "dim" else "faint"), mark) + " " + paint("text", title_c)
+                rows.append(pad(colored, w - len(ident) - 1) + " " + paint("dim", ident))
+        if not n:
+            rows.append(paint("faint", "  —"))
+        blocks.append([pad(r, w) for r in rows] + [" " * w] * (CH - len(rows)))
+    return [" " * margin + ln for ln in hcat(blocks, gap)]
 
 
-def node(x, i, name, who, model, status):
+def flow_node(x, name, who, model, status):
     iw = 12
-    label = f"{x.spin} RUNNING" if status == "running" else {"ok": "done", "fail": "FAILED", "pending": "waiting"}[status]
-    rows = [f"{name}".center(iw), clip(who, iw).center(iw), clip(model, iw).center(iw), label.center(iw)]
-    return box([paint({"pending": "pending"}.get(status, status), r) if k else paint("bold", r) for k, r in enumerate(rows)], 14, 6, kind=status)
-
-
-def subnode(label, value, kind):
-    return box([paint(kind if kind != "pending" else "text", clip(value, 10).center(10))], 14, 3, label, kind if kind != "pending" else "pending")
+    kind = status if status != "pending" else "faint"
+    body = [paint(status if status != "pending" else "dim", center(f"{x.glyph(status)} {name}", iw)),
+            paint("dim", center(clip(who, iw), iw)), paint("dim", center(clip(model, iw), iw))]
+    return box(body, 14, 5, kind=kind)
 
 
 def screen_flow(x):
-    r, cfg = x.cfg["roles"], x.cfg
-    area = Card(next(iter(x.project.glob(f"board/*/{x.card_id}.md")))).area if x.card_id and list(x.project.glob(f"board/*/{x.card_id}.md")) else "backend"
-    agent = cfg["agents"].get(area, "backend")
+    cfg, r = x.cfg, x.cfg["roles"]
+    found = list(x.project.glob(f"board/*/{x.card_id}.md")) if x.card_id else []
+    area = Card(found[0]).area if found else "backend"
     st = ["ok" if x.card_id else "pending"] + x.stat
     qa_n, cross_n = [rv["name"] for rv in cfg["reviewers"]][:2]
-    verdict = {"APPROVED": " OK", "REJECTED": " NO"}
     short = lambda m: (m or "-").split("-")[0]  # noqa: E731
-    nodes = [("CARD", "trigger", f"#{(x.card_id or '-').split('-')[0]}"), ("1 SPLIT", "splitter", r["splitter"]["model"] if cfg["split"] else "off"),
-             ("2 PLAN", "planner", r["planner"]["model"]), ("3 BUILD", "builder", r["builder"]["model"]), ("4 CHECKS", "rules + ci", ""),
-             ("5 REVIEW", "qa + cross", f"{short(cfg['reviewers'][0].get('model'))}+{short(cfg['reviewers'][1].get('model'))}"), ("6 MERGE", "git", cfg["base"])]
-    subs = [[("Input", "board/", "info"), ("Area", area, "info")],
-            [("Model", r["splitter"]["model"], "info"), ("Rule", "3+ parts", "info")],
-            [("Model", r["planner"]["model"], "info"), ("Memory", f"{area}.md", "info")],
-            [("Model", r["builder"]["model"], "info"), ("Agent", agent, "info")],
-            [("Rules", f"{len(cfg['guardrails']['protected'])} paths", "info"), ("CI", cfg["ci"].replace("bash ", "").split("/")[-1], "info")],
-            [(qa_n + verdict.get(x.got.get(qa_n), ""), short(cfg["reviewers"][0].get("model")), x.revs[qa_n]),
-             (cross_n + verdict.get(x.got.get(cross_n), ""), short(cfg["reviewers"][1].get("model")), x.revs[cross_n])],
-            [("Retro", r["retro"]["model"], "info"), ("Into", cfg["base"], "info")]]
-    top = hcat([node(x, i, n, w, m, st[i]) for i, (n, w, m) in enumerate(nodes)], gap=3)
-    # connectors sit on the 3rd row of the node boxes
-    rows = [" " * 2 + ln + " " * 2 for ln in top]
-    arrow = []
-    for ln_i, ln in enumerate(rows):
-        if ln_i == 3:
-            parts = ["  "]
-            for i in range(7):
-                parts.append(ln[2 + i * 17: 2 + i * 17 + 14])
-                if i < 6:
-                    parts.append(paint("ok" if st[i] == "ok" else "pending", "─▶ "))
-            ln = "".join(parts) + "  "
-        arrow.append(ln)
-    drop = " " * 2 + "   ".join(" " * 6 + paint("pending", "┊") + " " * 7 for _ in range(7)) + " " * 2
-    sub_rows = []
-    for lvl in range(2):
-        sub_rows.append(drop)
-        sub_rows += [" " * 2 + "   ".join(subnode(*subs[i][lvl])[k] for i in range(7)) + " " * 2 for k in range(3)]
-    flow = arrow + sub_rows                      # 6 + 8 = 14 rows
-    events = []
-    for e in x.ev[-(CH - len(flow) - 3):]:
-        bad = any(b in (e.get("result", "") + e["kind"]).lower() for b in ("fail", "violation", "reject", "blocked", "invalid"))
-        events.append(" " + paint("fail" if bad else "pending", f"{e['ts'][-8:-3]}  {e['card'].split('-')[0]:<4} {_sentence(e)}"))
-    return flow + [""] + box(events, W, CH - len(flow) - 1, "LATEST", "pending", f"try {x.tries() or '-'} of {cfg['max_attempts']}")
+    nodes = [("CARD", "trigger", f"#{(x.card_id or '-').split('-')[0]}"), ("SPLIT", "splitter", r["splitter"]["model"] if cfg["split"] else "off"),
+             ("PLAN", "planner", r["planner"]["model"]), ("BUILD", "builder", r["builder"]["model"]), ("CHECKS", "rules + ci", "lint+tests"),
+             ("REVIEW", "qa + cross", f"{short(cfg['reviewers'][0].get('model'))[:6]}+{short(cfg['reviewers'][1].get('model'))[:5]}"), ("MERGE", "git", cfg["base"])]
+    g = {"ok": paint("ok", "✓"), "fail": paint("fail", "×"), "running": paint("running", x.spin), "pending": paint("dim", "·")}
+    details = [paint("dim", area), paint("dim", "3+ parts"), paint("dim", f"{area}.md"), paint("dim", cfg["agents"].get(area, "backend")),
+               paint("dim", f"{len(cfg['guardrails']['protected'])} rules"), f"qa {g[x.revs[qa_n]]}  cross {g[x.revs[cross_n]]}", paint("dim", "retro + log")]
+    boxes = [flow_node(x, n, w, m, st[i]) for i, (n, w, m) in enumerate(nodes)]
+    rows = []
+    for k in range(5):
+        row = "  "
+        for i in range(7):
+            row += boxes[i][k]
+            if i < 6:
+                row += paint("ok" if st[i] == "ok" else "faint", "──▶") if k == 2 else "   "
+        rows.append(row + "  ")
+    rows.append("  " + "   ".join(center(d, 14) for d in details) + "  ")
+    tries = x.tries()
+    if tries and x.cur is not None:
+        dots = "".join(paint("running", "●") if i < tries else paint("faint", "○") for i in range(cfg["max_attempts"]))
+        rows.append(" " + paint("dim", "  attempt ") + dots)
+    else:
+        rows.append("")
+    rows += ["", " " + rule(W - 2, "Activity")]
+    room = min(CH - len(rows), 9)
+    rows += [event_line(e, W) for e in x.ev[-room:]] or [paint("faint", "   nothing yet")]
+    return rows
 
 
 def wrap(text, w, indent=""):
     out = []
     for para in text.splitlines():
-        out += textwrap.wrap(para, w, initial_indent=indent, subsequent_indent=indent + ("  " if para.lstrip().startswith(("-", "[")) else "")) or [""]
+        out += textwrap.wrap(para, w, initial_indent=indent, subsequent_indent=indent) or [""]
     return out
 
 
 def checklist(text, w):
-    """'- [x] task' lines -> '[x] task' with a hanging indent when wrapped."""
+    """'- [x] task' lines -> '✓ task' / '○ task' with a hanging indent when wrapped."""
     out = []
     for ln in text.splitlines():
         m = re.match(r"\s*- \[( |x)\] (.*)", ln)
         if not m:
             out += wrap(ln, w)
             continue
-        parts = textwrap.wrap(m.group(2), w - 4) or [""]
-        out.append((paint("ok", "[x]") if m.group(1) == "x" else "[ ]") + " " + parts[0])
-        out += ["    " + p for p in parts[1:]]
+        parts = textwrap.wrap(m.group(2), w - 2) or [""]
+        out.append((paint("ok", "✓") if m.group(1) == "x" else paint("dim", "○")) + " " + parts[0])
+        out += ["  " + p for p in parts[1:]]
     return out
 
 
 def card_lines(card, w):
-    L = []
+    L = [paint("accent", clip(card.title, w)), paint("dim", f"{card.id.split('-')[0]} · {card.area} · {card.get('attempts', '0')} {'try' if card.get('attempts', '0') == '1' else 'tries'}")]
 
-    def head(t):
-        L.extend(["", paint("accent", t.upper())])
+    def sec(t, kind="accent"):
+        L.extend(["", rule(w, t, tkind=kind)])
 
-    L.append(paint("bold", card.title) + paint("pending", f"   {card.id} · {card.area} · attempts {card.get('attempts', '0')}"))
-    head("goal")
+    sec("Goal")
     L += wrap(card.section("Goal"), w)
-    head("acceptance criteria")
-    L += checklist(card.section("Acceptance criteria"), w) or [paint("pending", "-")]
-    head("plan")
-    L += wrap(card.section("Plan"), w) or [paint("pending", "(planner has not run yet)")]
-    head("tasks")
-    L += checklist(card.section("Tasks"), w) or [paint("pending", "(none yet)")]
+    sec("Criteria")
+    L += checklist(card.section("Acceptance criteria"), w) or [paint("dim", "—")]
+    sec("Plan")
+    L += wrap(card.section("Plan"), w) or [paint("dim", "not planned yet")]
+    sec("Tasks")
+    L += checklist(card.section("Tasks"), w) or [paint("dim", "none yet")]
     q = card.section("Blockers")
     if q:
-        head("questions for you")
+        sec("Questions for you", "fail")
         L += [paint("fail", ln) for ln in wrap(q, w)]
-    head("status log")
-    L += [paint("pending", ln) for ln in wrap("\n".join(card.section("Status log").splitlines()[-6:]), w)]
+    sec("Log", "dim")
+    L += [paint("dim", ln) for ln in wrap("\n".join(card.section("Status log").splitlines()[-4:]), w)]
     return L
 
 
 def screen_planner(x):
     flat = x.flat()
-    left = []
-    glyph = {"backlog": ("○", "pending"), "doing": ("●", "running"), "done": ("✔", "ok"), "blocked": ("✖", "fail")}
+    if flat and not x.selected:
+        x.ui.col, x.ui.row = flat[0]
+    glyph = {"backlog": ("○", "dim"), "doing": ("●", "running"), "done": ("✓", "ok"), "blocked": ("×", "fail")}
+    left = [" " + rule(37, "Cards"), ""]
     for ci, ri in flat:
         key = COLS[ci][1]
         c = x.items[key][ri]
         g, kind = glyph[key]
         s = f" {g} {clip(c.title, 33)}"
-        sel = (ci, ri) == (x.ui.col, x.ui.row)
-        left.append(paint("sel", pad(s, 38)) if sel else paint(kind, s))
-    sel = x.selected
-    right, title, hint = [], "no card", ""
+        left.append(selrow(s, 38) if (ci, ri) == (x.ui.col, x.ui.row) else paint(kind, s[:3]) + paint("text", s[3:]))
+    if not flat:
+        left.append(paint("faint", "  no cards yet"))
+    sel = x.selected if x.selected else (x.items[COLS[x.ui.col][1]][x.ui.row] if flat else None)
+    right = []
     if sel:
-        allr = card_lines(sel, 74)
-        x.ui.scroll = min(max(x.ui.scroll, 0), max(len(allr) - (CH - 2), 0))
-        right = [" " + ln for ln in allr[x.ui.scroll: x.ui.scroll + CH - 2]]
-        title = sel.id
-        hint = "PgUp/PgDn ▲▼" if len(allr) > CH - 2 else ""
-    return hcat([box(left or [paint("pending", " (no cards)")], 40, CH, "CARDS", "pending", str(len(flat))), box(right, 79, CH, title, "info", hint)])
+        allr = card_lines(sel, 76)
+        x.ui.scroll = min(max(x.ui.scroll, 0), max(len(allr) - CH, 0))
+        right = [" " + ln for ln in allr[x.ui.scroll: x.ui.scroll + CH]]
+        if len(allr) > CH:
+            right[-1] = " " + paint("dim", "PgUp/PgDn for more ▾")
+    sep = paint("faint", "│")
+    left, right = fit(left, CH, 40), fit(right, CH, 79)
+    return [f"{a}{sep}{b}" for a, b in zip(left, right, strict=True)]
 
 
 def tail_lines(path, n, w):
@@ -276,30 +308,35 @@ def tail_lines(path, n, w):
     except OSError:
         return []
     out = []
-    for ln in data[-60:]:
-        out += textwrap.wrap(ln, w, subsequent_indent="  ") or [""]
+    for ln in data[-80:]:
+        if not ln.strip() or ln.startswith(("--- run", "  (+", "==")):
+            continue
+        kind = "info" if ln.startswith("> ") else "accent" if ln.startswith(("RESULT:", "VERDICT:")) else "dim"
+        out.append(paint(kind, clip(ln.strip(), w)))
     return out[-n:]
 
 
 def screen_agents(x):
     sd = x.project / ".orchestrator" / "streams"
-    ph = (x.phase.split()[0] if x.cur is not None else "")
-    active = {"planner": ph in ("split", "plan"), "builder": ph in ("build",), "qa": ph == "review", "cross": ph == "review", "retro": ph in ("retro",), "pipeline": x.cur is not None}
+    ph = x.phase.split()[0] if x.cur is not None else ""
+    active = {"planner": ph in ("split", "plan"), "builder": ph == "build", "qa": ph == "review", "cross": ph == "review", "retro": ph == "retro",
+              "pipeline": x.cur is not None}
     model = {"planner": x.cfg["roles"]["planner"]["model"], "builder": x.cfg["roles"]["builder"]["model"], "retro": x.cfg["roles"]["retro"]["model"],
-             "qa": x.cfg["reviewers"][0].get("model", ""), "cross": x.cfg["reviewers"][1].get("model", ""), "pipeline": "orchestrator"}
+             "qa": x.cfg["reviewers"][0].get("model", ""), "cross": x.cfg["reviewers"][1].get("model", ""), "pipeline": ""}
     widths, heights = [40, 39, 39], [15, 14]
-    grid = [["planner", "builder", "qa"], ["cross", "retro", "pipeline"]]
     rows = []
-    for ri, names in enumerate(grid):
+    for ri, names in enumerate([["planner", "builder", "qa"], ["cross", "retro", "pipeline"]]):
         blocks = []
         for ci, n in enumerate(names):
             w, h = widths[ci], heights[ri]
-            body = [paint("pending" if not active[n] else "text", " " + clip(ln, w - 3)) for ln in tail_lines(sd / f"{n}.log", h - 2, w - 4)]
-            blocks.append(box(body, w, h, f"{n} · {clip(model[n], 14)}", "running" if active[n] and n != "pipeline" else "pending", "● live" if active[n] and n != "pipeline" else ""))
+            on = active[n] and n != "pipeline"
+            body = [" " + ln for ln in (tail_lines(sd / f"{n}.log", h - 2, w - 4) if n != "pipeline" else [event_line(e, w - 2).strip() for e in x.ev[-(h - 2):]])]
+            blocks.append(box(body, w, h, f"{x.spin if on else '●'} {n}", "running" if on else "faint", clip(model[n], 16), tkind="running" if on else "text"))
         rows += hcat(blocks)
     return rows
 
 
+# ------------------------------------------------------------------- usage numbers
 def fmt_n(n):
     return str(n) if n < 1000 else f"{n / 1000:.1f}k" if n < 1_000_000 else f"{n / 1_000_000:.1f}M"
 
@@ -316,33 +353,34 @@ def bar(frac, width=18):
     frac = min(max(frac, 0.0), 1.0)
     full = round(frac * width)
     kind = "ok" if frac < 0.6 else "running" if frac < 0.85 else "fail"
-    return paint(kind, "█" * full) + paint("pending", "░" * (width - full))
+    return paint(kind, "█" * full) + paint("faint", "░" * (width - full))
 
 
 def window_line(label, w, now):
     """One account-limit window of Claude Code, e.g. the 5-hour session."""
     if not w or w.get("utilization") is None:
-        return f" {label:<15}" + paint("pending", "no data yet")
+        return f" {label:<9}" + paint("dim", "no data yet")
     reset = w.get("resetsAt") or 0
     if reset and reset < now:
-        return f" {label:<15}" + paint("pending", "window reset since - press u to refresh")
+        return f" {label:<9}" + paint("dim", "reset since · press u")
     frac = w["utilization"]
-    when = f"resets in {fmt_eta(reset - now)}" if reset else ""
-    return f" {label:<15}{bar(frac)} {round(frac * 100):>3}%  {paint('pending', when)}"
+    return f" {label:<9}{bar(frac)} {round(frac * 100):>3}%  " + paint("dim", f"resets in {fmt_eta(reset - now)}" if reset else "")
 
 
-def usage_table(title, data, ai):
-    rows = data.get(ai, {})
-    if not rows:
-        return [paint("pending", f" {title:<14}no calls yet")]
-    out = [paint("pending", f" {title:<12}{'calls':>6}{'tokens in':>11}{'out':>8}")]
-    for model, m in sorted(rows.items()):
-        out.append(f" {clip(model, 12):<12}{m['calls']:>6}{fmt_n(m['in']):>11}{fmt_n(m['out']):>8}")
+def usage_table(run, total, ai):
+    """model | calls | tokens this run | tokens in all runs."""
+    models = sorted(set(run.get(ai, {})) | set(total.get(ai, {})))
+    if not models:
+        return [paint("faint", "   no calls yet")]
+    out = [paint("dim", f" {'model':<20}{'calls':>6}{'this run':>11}{'all runs':>11}")]
+    for m in models:
+        a, b = run.get(ai, {}).get(m), total.get(ai, {}).get(m)
+        out.append(f" {clip(m, 20):<20}{(a or {'calls': 0})['calls']:>6}{fmt_n(a['in'] + a['out']) if a else '·':>11}{fmt_n(b['in'] + b['out']) if b else '·':>11}")
     return out
 
 
 def usage_summary(x):
-    """Compact one-liner for the header: Claude's account windows and agy's token count."""
+    """Compact usage for the header: Claude's account windows and agy's token count."""
     now = time.time()
     w = x.limits.get("windows", {})
     parts = []
@@ -351,7 +389,7 @@ def usage_summary(x):
         if win and win.get("utilization") is not None and not (win.get("resetsAt") and win["resetsAt"] < now):
             f = win["utilization"]
             parts.append(label + " " + paint("ok" if f < 0.6 else "running" if f < 0.85 else "fail", f"{round(f * 100)}%"))
-    claude = " ".join(parts) or paint("pending", "limits ?")
+    claude = " ".join(parts) or paint("dim", "limits ?")
     agy_tok = sum(m["in"] + m["out"] for m in x.all_use.get("agy", {}).values())
     return claude, (f"{fmt_n(agy_tok)} tok" if agy_tok else "")
 
@@ -359,12 +397,17 @@ def usage_summary(x):
 def ai_rows(x):
     """Checklist rows: ('head', text) or ('item', key). Items are the selectable AI models."""
     rows = []
-    for cli, label in (("claude", "Claude Code"), ("agy", "Antigravity (agy)")):
+    for cli, label in (("claude", "Claude Code"), ("agy", "Antigravity")):
         info = x.ais.get(cli, {})
-        state = "logged in" if info.get("logged_in") else ("installed, NOT logged in" if info.get("installed") else "not installed")
-        rows.append(("head", f"{label}  -  {state}" if info else f"{label}  -  not detected yet (press d)"))
+        state = "logged in" if info.get("logged_in") else ("not logged in" if info.get("installed") else "not installed")
+        rows.append(("head", cli, label, state if info else "not detected · press d"))
         rows += [("item", menu.keyof(c, m)) for c, m in x.avail if c == cli]
     return rows
+
+
+def short_key(key):
+    cli, model = key.split("/", 1)
+    return model if cli == "claude" else f"agy · {model}"
 
 
 def screen_ais(x):
@@ -376,53 +419,60 @@ def screen_ais(x):
     used = {}
     for s in menu.SLOTS:
         used.setdefault(menu.assigned(x.cfg, s), []).append(s)
+    lw = 57
     # --- checklist
     lines, sel_line = [], 0
-    for kind, v in rows:
-        if kind == "head":
-            lines.append(paint("bold", " " + clip(v, 54)))
+    for r in rows:
+        if r[0] == "head":
+            _, cli, label, state = r
+            ok = state == "logged in"
+            lines.append(" " + paint("bold", label) + "  " + paint("ok" if ok else "dim", "● " if ok else "○ ") + paint("dim", state))
             continue
-        idx = items.index(v)
-        mark = paint("ok", "[x]") if v in x.on else "[ ]"
-        tag = clip(", ".join(used.get(v, [])), 20)
-        s = f" {mark} {clip(v.split('/', 1)[1], 30):<31}" + paint("info", tag)
+        key = r[1]
+        idx = items.index(key)
+        tag = clip(" ".join(used.get(key, [])), 27)
+        plain = f"   {'◉' if key in x.on else '○'} {clip(key.split('/', 1)[1], 24):<25}{tag}"
         if idx == cur:
             sel_line = len(lines)
-            s = paint("sel", pad(ANSI.sub("", s), 56))
-        lines.append(s)
-    room = 15
+            lines.append(selrow(plain, lw))
+        else:
+            lines.append("   " + (paint("ok", "◉") if key in x.on else paint("faint", "○")) + " " + paint("text" if key in x.on else "dim", f"{clip(key.split('/', 1)[1], 24):<25}")
+                         + paint("info", tag))
+    room = CH - 12
     start = min(max(sel_line - room // 2, 0), max(len(lines) - room, 0))
-    shown = lines[start:start + room] or [paint("pending", " (no AI detected: press d)")]
-    left_top = box(shown, 58, 17, "AIs TO USE  (space = check)", "info", f"{len(x.on)} on")
-    # --- who does what
-    role_lines = []
+    out = [" " + rule(lw - 9, "Use these AIs") + paint("dim", f" {len(x.on)} on ")]
+    out += (lines[start:start + room] or [paint("dim", "   no AI detected · press d")])
+    out += [""] * (1 + room - len(out) + 1 - 1)
+    out = out[: room + 1] + [" " + rule(lw - 2, "Who does what")]
     for i, slot in enumerate(menu.SLOTS):
         key = menu.assigned(x.cfg, slot)
         ok = key in x.on or x.cfg.get("use") is None
-        s = f" {slot:<9}◂ {clip(key, 36):<36} ▸" + ("" if ok else " !")
-        role_lines.append(paint("sel", pad(s, 56)) if len(items) + i == cur else (s if ok else paint("fail", s)))
+        val = short_key(key)
+        if len(items) + i == cur:
+            out.append(selrow(f"   {slot:<10}‹ {clip(val, 34)} ›", lw))
+        else:
+            out.append(f"   {paint('text', f'{slot:<10}')}" + paint("text" if ok else "fail", f"  {clip(val, 34)}") + ("" if ok else paint("fail", " !")))
         if slot == "retro":
-            role_lines.append(paint("pending", " reviewers:"))
+            out.append(" " + paint("faint", "   reviewers"))
     same = menu.assigned(x.cfg, "qa") == menu.assigned(x.cfg, "cross")
-    role_lines += ["", paint("running", " ! qa and cross use the same model") if same else paint("pending", " qa and cross are different models: good")]
-    left_bot = box(role_lines, 58, 12, "WHO DOES WHAT  (←/→ change)", "info")
+    out.append(" " + (paint("running", "  ! qa and cross use the same model") if same else ""))
+    left = fit(out, CH, lw)
     # --- usage
     now = time.time()
     w = x.limits.get("windows", {})
     upd = x.limits.get("updated")
-    ago = f"updated {fmt_eta(now - upd)} ago" if upd else "never read"
-    u = [paint("bold", " CLAUDE CODE") + paint("pending", f" · your account limits · {ago}"),
-         window_line("5-hour session", w.get("five_hour"), now), window_line("weekly", w.get("seven_day"), now)]
+    u = [" " + rule(60, "Usage · live"), "",
+         " " + paint("bold", "Claude Code") + paint("dim", f"   account limits · {'updated ' + fmt_eta(now - upd) + ' ago' if upd else 'never read'}"),
+         window_line("session", w.get("five_hour"), now), window_line("week", w.get("seven_day"), now)]
     if x.limits.get("status") not in (None, "allowed", "allowed_warning"):
         u.append(paint("fail", f" status: {x.limits.get('status')}"))
-    u += [""] + usage_table("this run", x.run_use, "claude") + usage_table("all runs", x.all_use, "claude")
-    u += ["", paint("bold", " ANTIGRAVITY (agy)"), paint("pending", " account quota: not exposed by agy (tokens only)")]
-    u += usage_table("this run", x.run_use, "agy") + usage_table("all runs", x.all_use, "agy")
+    u += [""] + usage_table(x.run_use, x.all_use, "claude")
+    u += ["", " " + paint("bold", "Antigravity") + paint("dim", "   quota not shown by agy · tokens only")] + usage_table(x.run_use, x.all_use, "agy")
     probe = usage.PROBE
-    note = probe["msg"] if probe["msg"] else ""
-    u += ["", paint("pending", " u refresh limits (1 tiny haiku call)    d re-detect AIs"), " " + paint("info", ("⠿ " if probe["running"] else "") + (x.ui.msg or note))]
-    right = box(u, 61, 29, "USAGE · live", "ok" if x.limits else "pending")
-    return [f"{a} {b}" for a, b in zip(left_top + left_bot, right, strict=True)]
+    u += ["", " " + paint("info", ("⠿ " if probe["running"] else "") + (x.ui.msg or probe["msg"]))]
+    right = fit(u, CH, 62)
+    sep = paint("faint", "│")
+    return [f"{a}{sep}{b}" for a, b in zip(left, right, strict=True)]
 
 
 def handle_ais(key, ui, x):
@@ -454,21 +504,20 @@ SCREENS = [screen_board, screen_flow, screen_planner, screen_agents, screen_ais]
 
 # --------------------------------------------------------------------------- frame
 def frame(x):
-    cfg = x.cfg
     claude_use, agy_use = usage_summary(x)
     extra = {"claude": claude_use, "agy": agy_use}
-    ai = "   ".join(f"{k} {paint('ok', '●') if v.get('logged_in') else paint('fail', '●')} {extra.get(k, '')}".rstrip() for k, v in x.ais.items()) \
-        or "run `lonerchestrator intro`"
-    left = f" ORCH ▸ {x.project.name}"
-    right = f"base {cfg['base']}   {ai} "
-    head = left + " " * (W - len(left) - vlen(right)) + right
-    tabs = " ".join(paint("sel", f" {i + 1} {n} ") if i == x.ui.screen else paint("pending", f" {i + 1} {n} ") for i, n in enumerate(TABS))
-    run = x.proc_msg or (paint("running", f"{x.spin} pipeline running") if x.cur is not None else paint("pending", "idle"))
-    tabs_line = tabs + " " * (W - vlen(tabs) - vlen(run) - 1) + run + " "
-    keys = (" ↑↓ move   space check / change   ←→ change model   u refresh limits   d detect AIs   1-5 views   q quit" if x.ui.screen == 4
-            else " ←→↑↓ move   1-5 / Tab views   r run   x stop   PgUp/PgDn scroll   q quit")
+    pills = "   ".join(f"{paint('ok', '●') if v.get('logged_in') else paint('fail', '●')} {k} {extra.get(k, '')}".rstrip() for k, v in x.ais.items()) \
+        or paint("dim", "run `lonerchestrator intro`")
+    left = paint("accent", " ◆ lonerchestrator") + paint("faint", "  ·  ") + paint("text", x.project.name)
+    head = left + " " * max(W - vlen(left) - vlen(pills) - 1, 1) + pills + " "
+    tabs = " ".join(paint("tab", f" {i + 1} {n} ") if i == x.ui.screen else paint("dim", f" {i + 1} {n} ") for i, n in enumerate(TABS))
+    run = x.proc_msg or (paint("running", f"{x.spin} running") if x.cur is not None else paint("faint", "● idle"))
+    tabs_line = " " + tabs + " " * max(W - vlen(tabs) - vlen(run) - 2, 1) + run + " "
+    keys = (" ↑↓ move   space toggle   ←→ model   u refresh limits   d detect   1-5 tabs   q quit" if x.ui.screen == 4
+            else " ←→↑↓ move   tab / 1-5 views   r run   x stop   PgUp PgDn scroll   q quit")
     body = fit(SCREENS[x.ui.screen](x), CH)
-    return [pad(head, W), pad(tabs_line, W), paint("pending", "─" * W)] + body + [pad(" NOW  " + x.now(), W), paint("pending", pad(keys, W))]
+    return [pad(clip_ansi(head, W), W), pad(clip_ansi(tabs_line, W), W), paint("faint", "─" * W)] + body \
+        + [pad(clip_ansi(" " + x.now(), W), W), paint("faint", pad(keys, W))]
 
 
 def render(project, screen=0, ui=None, color=True, proc_msg=""):
@@ -482,11 +531,10 @@ def render(project, screen=0, ui=None, color=True, proc_msg=""):
 
 # --------------------------------------------------------------------------- interactive loop
 class Runner:
-    """Starts/stops the pipeline as a background process owned by the TUI."""
+    """Starts/stops the pipeline as a background process owned by the panel."""
 
     def __init__(self, project, base):
         self.project, self.base, self.proc = project, base, None
-        self.msg = ""
 
     def start(self):
         if self.proc and self.proc.poll() is None:
@@ -509,9 +557,9 @@ class Runner:
         if rc is None:
             return paint("running", f"{SPIN[int(time.time() * 8) % 10]} run in progress")
         if rc == 0:
-            return paint("ok", "run finished")
+            return paint("ok", "✓ run finished")
         tail = (self.project / ".orchestrator" / "run.out").read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1:]
-        return paint("fail", clip(f"run stopped (rc {rc}): {tail[0] if tail else ''}", 60))
+        return paint("fail", clip(f"× run stopped (rc {rc}): {tail[0] if tail else ''}", 60))
 
 
 def handle(key, ui, x, runner):
@@ -573,7 +621,7 @@ def run_tui(project, base, autorun=False, tab=1):
                 (project / ".orchestrator" / "tui.size").write_text(f"{sz.columns}x{sz.lines}", encoding="utf-8")
                 x = Ctx(project, ui, runner.status())
                 for k in term.read_keys():
-                    if k in ("q", ""):
+                    if k in ("q", "\x03"):                       # q or Ctrl+C
                         return
                     handle(k, ui, x, runner)
                     x = Ctx(project, ui, runner.status())

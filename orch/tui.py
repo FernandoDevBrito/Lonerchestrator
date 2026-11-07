@@ -9,7 +9,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import config, menu, term, usage
+from . import answer, config, menu, term, usage
 from .board import Board, Card
 from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
 
@@ -94,6 +94,7 @@ class UI:
     def __init__(self):
         self.screen, self.col, self.row, self.scroll = 0, 0, 0, 0
         self.cursor, self.msg = 0, ""              # AIs tab: cursor over checklist + role rows, last action message
+        self.mode, self.qcard, self.qs, self.ans, self.buf = None, "", [], [], ""      # answering a blocked card's questions
 
 
 class Ctx:
@@ -142,10 +143,14 @@ class Ctx:
         return self.spin if status == "running" else GLYPH[status]
 
     def now(self):
+        if self.ui.mode == "answer":
+            return paint("info", f"\u25b8 answering {self.ui.qcard.split('-')[0]}") + paint("dim", f" \u00b7 question {len(self.ui.ans) + 1} of {len(self.ui.qs)}")
+        if self.ui.msg and self.ui.screen in (0, 2):
+            return paint("ok", "\u25b8 " + self.ui.msg)
         if self.cur is None:
             blocked = self.items["blocked"]
             if blocked:
-                return paint("fail", f"▸ {blocked[-1].id.split('-')[0]} needs you") + paint("dim", " · open the Planner tab (3) to read the questions")
+                return paint("fail", f"▸ {blocked[-1].id.split('-')[0]} needs you") + paint("dim", " · press a to answer its questions")
             return paint("dim", "▸ idle · press r to run the backlog")
         if self.cur == PHASE_IDX["review"]:
             g = {"ok": paint("ok", "✓"), "fail": paint("fail", "×"), "running": paint("running", self.spin), "pending": "·"}
@@ -270,6 +275,8 @@ def card_lines(card, w):
     if q:
         sec("Questions for you", "fail")
         L += [paint("fail", ln) for ln in wrap(q, w)]
+        if card.path.parent.name == "blocked":
+            L += ["", paint("info", "press a to answer these")]
     sec("Log", "dim")
     L += [paint("dim", ln) for ln in wrap("\n".join(card.section("Status log").splitlines()[-4:]), w)]
     return L
@@ -291,7 +298,9 @@ def screen_planner(x):
         left.append(paint("faint", "  no cards yet"))
     sel = x.selected if x.selected else (x.items[COLS[x.ui.col][1]][x.ui.row] if flat else None)
     right = []
-    if sel:
+    if x.ui.mode == "answer":
+        right = [" " + ln for ln in answer_view(x.ui, 76)]
+    elif sel:
         allr = card_lines(sel, 76)
         x.ui.scroll = min(max(x.ui.scroll, 0), max(len(allr) - CH, 0))
         right = [" " + ln for ln in allr[x.ui.scroll: x.ui.scroll + CH]]
@@ -300,6 +309,52 @@ def screen_planner(x):
     sep = paint("faint", "│")
     left, right = fit(left, CH, 40), fit(right, CH, 79)
     return [f"{a}{sep}{b}" for a, b in zip(left, right, strict=True)]
+
+
+def answer_view(ui, w):
+    """The detail pane while answering: current question, what is being typed, answers given so far."""
+    n, total = len(ui.ans) + 1, len(ui.qs)
+    L = [paint("accent", f"Answering {ui.qcard.split('-')[0]}") + paint("dim", f"   question {n} of {total}"), rule(w), ""]
+    L += [paint("bold", ln) for ln in wrap(ui.qs[len(ui.ans)], w)]
+    L += ["", paint("dim", "Your answer")]
+    typed = wrap(ui.buf + "\u258c", w - 2)
+    L += [(paint("info", "\u203a ") if i == 0 else "  ") + ln for i, ln in enumerate(typed)]
+    if ui.ans:
+        L += ["", rule(w, "Done so far", "faint", "dim")]
+        L += [paint("ok", "\u2713 ") + paint("dim", f"{i} ") + paint("text", clip(a or "(skipped)", w - 6)) for i, a in enumerate(ui.ans, 1)]
+    L += ["", paint("dim", "Enter next question  \u00b7  Esc cancel  \u00b7  leave empty to skip")]
+    return L
+
+
+def start_answer(x):
+    """Begin answering the selected card (it must be blocked and have questions)."""
+    c, ui = x.selected, x.ui
+    if not c or c.path.parent.name != "blocked":
+        ui.msg = "select a card in Needs you to answer its questions"
+        return
+    qs = answer.questions(c)
+    if not qs:
+        ui.msg = f"{c.id.split('-')[0]} has no questions to answer"
+        return
+    ui.mode, ui.qcard, ui.qs, ui.ans, ui.buf, ui.msg, ui.screen = "answer", c.id, qs, [], "", "", 2
+
+
+def answer_key(key, ui, x):
+    """Every key while answering (q, digits and letters are text here)."""
+    if key in ("\r", "\n"):
+        ui.ans.append(ui.buf.strip())
+        ui.buf = ""
+        if len(ui.ans) == len(ui.qs):
+            card = next((c for c in x.items["blocked"] if c.id == ui.qcard), None)
+            done = bool(card) and answer.apply(card, ui.qs, ui.ans)
+            ui.msg = f"{ui.qcard.split('-')[0]} answered and queued \u00b7 press r to run" if done else "nothing answered, card left as it was"
+            ui.mode = None
+    elif key == "\x1b":
+        ui.mode, ui.msg = None, "answer cancelled"
+    elif key in ("\x7f", "\x08"):
+        ui.buf = ui.buf[:-1]
+    elif len(key) == 1 and key >= " ":
+        ui.buf += key
 
 
 def tail_lines(path, n, w):
@@ -513,8 +568,12 @@ def frame(x):
     tabs = " ".join(paint("tab", f" {i + 1} {n} ") if i == x.ui.screen else paint("dim", f" {i + 1} {n} ") for i, n in enumerate(TABS))
     run = x.proc_msg or (paint("running", f"{x.spin} running") if x.cur is not None else paint("faint", "● idle"))
     tabs_line = " " + tabs + " " * max(W - vlen(tabs) - vlen(run) - 2, 1) + run + " "
-    keys = (" ↑↓ move   space toggle   ←→ model   u refresh limits   d detect   1-5 tabs   q quit" if x.ui.screen == 4
-            else " ←→↑↓ move   tab / 1-5 views   r run   x stop   PgUp PgDn scroll   q quit")
+    if x.ui.mode == "answer":
+        keys = " type your answer   Enter next question   Esc cancel   Backspace erase"
+    elif x.ui.screen == 4:
+        keys = " \u2191\u2193 move   space toggle   \u2190\u2192 model   u refresh limits   d detect   1-5 tabs   q quit"
+    else:
+        keys = " \u2190\u2192\u2191\u2193 move   tab / 1-5 views   a answer   r run   x stop   PgUp PgDn scroll   q quit"
     body = fit(SCREENS[x.ui.screen](x), CH)
     return [pad(clip_ansi(head, W), W), pad(clip_ansi(tabs_line, W), W), paint("faint", "─" * W)] + body \
         + [pad(clip_ansi(" " + x.now(), W), W), paint("faint", pad(keys, W))]
@@ -564,7 +623,13 @@ class Runner:
 
 def handle(key, ui, x, runner):
     n = len(COLS)
-    if key and key in "12345":
+    if ui.mode == "answer":
+        answer_key(key, ui, x)
+        return
+    ui.msg = "" if ui.screen != 4 else ui.msg
+    if key == "a" and ui.screen in (0, 2):
+        start_answer(x)
+    elif key and key in "12345":
         ui.screen, ui.scroll = int(key) - 1, 0
     elif key == "\t":
         ui.screen, ui.scroll = (ui.screen + 1) % len(TABS), 0
@@ -621,7 +686,7 @@ def run_tui(project, base, autorun=False, tab=1):
                 (project / ".orchestrator" / "tui.size").write_text(f"{sz.columns}x{sz.lines}", encoding="utf-8")
                 x = Ctx(project, ui, runner.status())
                 for k in term.read_keys():
-                    if k in ("q", "\x03"):                       # q or Ctrl+C
+                    if k == "\x03" or (k == "q" and not ui.mode):    # Ctrl+C, or q (but q is text while answering)
                         return
                     handle(k, ui, x, runner)
                     x = Ctx(project, ui, runner.status())

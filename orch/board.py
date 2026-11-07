@@ -44,6 +44,19 @@ class Card:
         m = re.search(rf"^## +{re.escape(name)}[^\n]*\n(.*?)(?=^## |\Z)", self.text(), re.MULTILINE | re.DOTALL)
         return _COMMENT.sub("", m.group(1)).strip() if m else ""
 
+    def set_section(self, name, text):
+        """Replace the body of '## <name>...' (empty text clears it); insert the section before the status log when missing."""
+        t = self.text()
+        pat = re.compile(rf"(^## +{re.escape(name)}[^\n]*\n)(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+        body = (text.strip() + "\n\n") if text.strip() else "\n"
+        if pat.search(t):
+            t = pat.sub(lambda m: m.group(1) + body, t, count=1)
+        else:
+            i = t.find("## Status log")
+            block = f"## {name}\n{body}"
+            t = t[:i] + block + t[i:] if i >= 0 else t.rstrip() + "\n\n" + block
+        self.path.write_text(t, encoding="utf-8")
+
     def log(self, msg):
         with self.path.open("a", encoding="utf-8") as f:
             f.write(f"- {time.strftime('%F %T')} {msg}\n")

@@ -25,5 +25,8 @@ attempts: 0
 ## Blockers / questions
 <!-- agents fill; anything vague or missing becomes numbered questions here -->
 
+## Answers
+<!-- the user's answers to the questions above go here (the panel does it: Planner tab, key a; or `lonerchestrator answer`) -->
+
 ## Status log
 <!-- orchestrator appends below this line; keep this section last -->

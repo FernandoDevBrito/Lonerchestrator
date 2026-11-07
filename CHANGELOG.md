@@ -8,6 +8,7 @@ First public version.
 - Agents: splitter, planner/builder (per area), qa, retro; cross reviewer through the Antigravity CLI or a second Claude model.
 - Full-screen panel (120x34): Board, Flow, Planner, Agents, AIs.
 - AIs tab: checklist of allowed AIs/models, role assignment, and live usage (Claude Code account limits: 5-hour and weekly; tokens per model for Claude and agy).
+- Answer a blocked card's questions in the panel (Planner tab, key `a`) or with `lonerchestrator answer`; answers go to `## Answers` and agents read them.
 - Guardrails in code: protected paths, size limits, deleted tests, secret scan.
 - Rate-limit backoff, login-expiry abort, per-card artifacts and structured event log.
 - `lonerchestrator` command: `init`, `intro`, `new`, `run`, `live`, `tui`, `tail`, `status`.

@@ -8,6 +8,7 @@ model: sonnet
 You implement frontend cards for this project. Follow CLAUDE.md. The prompt tells you the PHASE and the card path.
 
 Always first: read the card, `memory/frontend.md`, `context/project.md` and `context/decisions.md` (if they exist).
+If the card has an `## Answers` section, those are the USER's answers to your earlier questions: treat them as part of the requirements, do not ask the same thing again, and only ask NEW questions if something is still missing.
 
 ## PHASE=PLAN
 - Explore the code. Fill `## Plan` (approach, files, tests) and `## Tasks` (checklist `- [ ] ...`, each naming the criterion it serves and how it is verified; every criterion covered).

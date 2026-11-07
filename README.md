@@ -100,7 +100,7 @@ Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** wit
 | **4 Agents** | What each agent is doing right now, in six aligned live panes |
 | **5 AIs** | A checklist of the AIs/models you allow, who does what, and your **live usage** (see below) |
 
-Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
+Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `a` answer a blocked card · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
 
 ### The AIs tab: choose your AIs, watch your usage
 
@@ -120,6 +120,7 @@ Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `PgUp`/`PgD
 | `init [--force]` | Set up a project (never overwrites existing files without `--force`) |
 | `intro [--yes]` | Detect logged-in AIs and assign models/agents (`--yes` accepts the defaults) |
 | `new "title" [--area frontend\|backend\|both]` | Create a numbered card in `board/backlog/` |
+| `answer [card]` | Answer a blocked card's questions in the terminal and send it back to the backlog |
 | `run [--card id] [--base branch] [--dry-run]` | Process the backlog headless |
 | `live` / `tui` `[--tab 1-5]` | Panel in a new window of the right size / in the current terminal, optionally opened on a tab |
 | `tail <role>` | Follow one agent's output (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
@@ -128,7 +129,13 @@ Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `PgUp`/`PgD
 
 ## When a card needs you
 
-Vague cards ("make it faster", "a nice report") are **not implemented**. They go to `NEEDS YOU` with numbered questions under `## Blockers / questions`. Answer by editing the card, move the file from `board/blocked/` back to `board/backlog/`, and run again. Cards that use all 3 attempts end up there too, with the partial work kept on the branch `card/<id>`.
+Vague cards ("make it faster", "a nice report") are **not implemented**. The agent stops and leaves numbered questions, and the card goes to **Needs you**. Cards that use all 3 attempts end up there too, with the partial work kept on the branch `card/<id>`.
+
+**Answer inside the panel:** open the card in the **Planner** tab (or select it on the Board) and press `a`. The questions appear one at a time; type your answer and press `Enter` for the next one (`Esc` cancels, an empty answer skips that question). After the last one the answers are saved in the card under `## Answers`, its questions are cleared, and the card goes back to the backlog. Press `r` to run it again; the planner reads your answers and does not ask the same thing twice.
+
+**Without the panel:** `lonerchestrator answer 002` asks the same questions in the terminal and does the same.
+
+**By hand** still works: write the answers in the card's `## Answers` section and move the file from `board/blocked/` back to `board/backlog/`.
 
 ## Guardrails
 

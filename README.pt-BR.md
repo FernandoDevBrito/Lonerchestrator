@@ -100,7 +100,7 @@ lonerchestrator init         # instala board, agentes, guardrails, context/ e fa
 | **4 Agents** | O que cada agente está fazendo agora, em seis painéis alinhados |
 | **5 AIs** | Checklist das IAs/modelos que você permite, quem faz o quê e o seu **uso em tempo real** (veja abaixo) |
 
-Teclas: `←→↑↓` mover/selecionar · `1`-`5` ou `Tab` trocar de aba · `PgUp`/`PgDn` rolar · `r` rodar o pipeline · `x` parar · `q` sair.
+Teclas: `←→↑↓` mover/selecionar · `1`-`5` ou `Tab` trocar de aba · `a` responder um card bloqueado · `PgUp`/`PgDn` rolar · `r` rodar o pipeline · `x` parar · `q` sair.
 
 Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 120×34).
 
@@ -122,6 +122,7 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 | `init [--force]` | Prepara o projeto (não sobrescreve arquivos existentes sem `--force`) |
 | `intro [--yes]` | Detecta IAs logadas e atribui modelos/agentes (`--yes` aceita os padrões) |
 | `new "título" [--area frontend\|backend\|both]` | Cria um card numerado em `board/backlog/` |
+| `answer [card]` | Responde as perguntas de um card bloqueado no terminal e o devolve ao backlog |
 | `run [--card id] [--base branch] [--dry-run]` | Processa o backlog sem interface |
 | `live` / `tui` | Painel em janela nova (tamanho fixo) / no terminal atual |
 | `tail <papel>` | Segue a saída de um agente (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
@@ -130,7 +131,13 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 
 ## Quando o card precisa de você
 
-Cards vagos ("deixa mais rápido", "relatório bonito") **não são implementados**: vão para `NEEDS YOU` com perguntas numeradas na seção `## Blockers / questions`. Responda editando o card, mova o arquivo de `board/blocked/` de volta para `board/backlog/` e rode de novo. Cards que estouram as 3 tentativas também vão para lá, com o trabalho parcial guardado na branch `card/<id>`.
+Cards vagos ("deixa mais rápido", "relatório bonito") **não são implementados**. O agente para e deixa perguntas numeradas, e o card vai para **Needs you**. Cards que estouram as 3 tentativas também vão para lá, com o trabalho parcial guardado na branch `card/<id>`.
+
+**Responda dentro do painel:** abra o card na aba **Planner** (ou selecione-o na Board) e aperte `a`. As perguntas aparecem uma por vez; digite a resposta e aperte `Enter` para a próxima (`Esc` cancela, resposta vazia pula a pergunta). Depois da última, as respostas são gravadas no card em `## Answers`, as perguntas são limpas e o card volta para o backlog. Aperte `r` para rodar de novo; o planner lê suas respostas e não pergunta a mesma coisa duas vezes.
+
+**Sem o painel:** `lonerchestrator answer 002` faz as mesmas perguntas no terminal e faz o mesmo.
+
+**À mão** ainda funciona: escreva as respostas na seção `## Answers` do card e mova o arquivo de `board/blocked/` de volta para `board/backlog/`.
 
 ## Guardrails e segurança
 

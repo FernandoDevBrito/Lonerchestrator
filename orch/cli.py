@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import answer as answers
 from . import config, term
 from .agents import Runner
 from .board import AREAS, Board
@@ -68,6 +69,33 @@ def cmd_new(a, project):
     dest.write_text(t, encoding="utf-8")
     print(dest)
     return 0
+
+
+def cmd_answer(a, project):
+    """Answer the questions of a blocked card in the terminal, then send it back to the backlog."""
+    blocked = Board(project).cards("blocked")
+    pick = [c for c in blocked if a.card and (c.id == a.card or c.id.startswith(a.card))] if a.card else blocked
+    if len(pick) != 1:
+        print("Blocked cards: " + (", ".join(c.id for c in blocked) or "none") + ("\nGive one id, e.g. `lonerchestrator answer 002`." if blocked else ""))
+        return 1
+    card = pick[0]
+    qs = answers.questions(card)
+    if not qs:
+        print(f"{card.id} has no questions to answer.")
+        return 1
+    print(f"\n{card.title}  ({card.id})\nLeave an answer empty to skip that question.\n")
+    given = []
+    for i, q in enumerate(qs, 1):
+        print(f"{i}/{len(qs)}  {q}")
+        try:
+            given.append(input("   > ").strip())
+        except EOFError:
+            given.append("")
+    if answers.apply(card, qs, given):
+        print(f"\nSaved. {card.id} is back in the backlog: run `lonerchestrator run` (or press r in the panel).")
+        return 0
+    print("\nNo answers given, the card was left as it was.")
+    return 1
 
 
 def cmd_run(a, project):
@@ -161,6 +189,8 @@ def main(argv=None):
     p = sub.add_parser("new", help="create a card in board/backlog")
     p.add_argument("title")
     p.add_argument("--area", choices=AREAS, default="backend")
+    p = sub.add_parser("answer", help="answer the questions of a blocked card and send it back to the backlog")
+    p.add_argument("card", nargs="?", help="card id or its number, e.g. 002 (optional when only one card is blocked)")
     p = sub.add_parser("run", help="process the backlog (headless)")
     p.add_argument("--card")
     p.add_argument("--base")

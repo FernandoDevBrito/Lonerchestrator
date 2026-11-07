@@ -21,4 +21,5 @@ A card is **SPLIT** when it bundles THREE OR MORE independent deliverables (for 
 - Create nothing. End with `RESULT: SINGLE`.
 
 ## If the card is too vague to split or build
+Answers from the user live in `## Answers` (if present): use them before deciding the card is still vague.
 - Do not guess: write numbered questions into the parent's `## Blockers / questions` (this is the only edit you may make to it) and end with `RESULT: BLOCKED`.

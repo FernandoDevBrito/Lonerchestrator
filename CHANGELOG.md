@@ -4,7 +4,7 @@
 
 First public version.
 
-- `lonerchestrator web`: kanban board in the browser (local only, token + Host/Origin checks, no dependencies). New requests in plain words are understood by the `suggester` AI into a card draft (rule-based fallback); click cards for details, answer questions with 3 suggestions, run and stop.
+- `lonerchestrator web`: the whole terminal panel in the browser (local only, token + Host/Origin checks, no dependencies): Board with drag and drop (move, re-queue, reorder by priority), Flow, Planner with answers, live Agents output, AIs with account limits and usage, Settings with readiness. New requests in plain words are understood by the `suggester` AI into a card draft (rule-based fallback).
 
 - Panel key `n`: write a request in plain words, the card is created and the pipeline starts (or picks it up if already running).
 

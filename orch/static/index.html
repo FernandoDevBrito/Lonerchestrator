@@ -4,71 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lonerchestrator board</title>
-<style>
-:root{--bg:#f6f7f9;--panel:#fff;--ink:#1c2230;--dim:#6a7385;--line:#e1e5ec;--accent:#4f6df5;--ok:#1f9d57;--warn:#d98a00;--bad:#d64545;--chip:#eef1f7}
-@media (prefers-color-scheme:dark){:root{--bg:#10131a;--panel:#181c26;--ink:#e6e9f0;--dim:#8b94a8;--line:#272d3b;--accent:#7b93ff;--ok:#3ccf82;--warn:#f0b43c;--bad:#ff6b6b;--chip:#222838}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
-header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
-header h1{font-size:15px;margin:0;font-weight:650}
-header .sp{flex:1}
-.pill{font-size:12px;color:var(--dim);background:var(--chip);border-radius:99px;padding:3px 10px}
-button{font:inherit;color:var(--ink);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
-button:hover{border-color:var(--accent)}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button:disabled{opacity:.5;cursor:default}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dim);margin-right:6px}
-.dot.on{background:var(--ok);animation:pulse 1.2s infinite}
-@keyframes pulse{50%{opacity:.35}}
-#problems{margin:12px 16px 0;padding:10px 14px;border:1px solid var(--warn);border-radius:10px;color:var(--warn);display:none}
-main{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;padding:16px;align-items:start}
-.col{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:120px}
-.col h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:2px 4px 10px;display:flex;justify-content:space-between}
-.card{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer}
-.card:hover{border-color:var(--accent)}
-.card .t{font-weight:600;margin-bottom:6px;overflow-wrap:anywhere}
-.card .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--dim)}
-.chip{background:var(--chip);border-radius:6px;padding:1px 7px}
-.chip.run{color:var(--accent)}.chip.q{color:var(--warn)}.chip.ok{color:var(--ok)}
-.bar{height:4px;background:var(--line);border-radius:4px;margin-top:8px;overflow:hidden}
-.bar i{display:block;height:100%;background:var(--ok)}
-.empty{color:var(--dim);font-size:12px;padding:6px 4px}
-dialog,aside{color:var(--ink)}
-#newbox{border:1px solid var(--line);border-radius:14px;background:var(--panel);width:min(640px,94vw);padding:18px}
-#newbox::backdrop{background:rgba(0,0,0,.45)}
-textarea,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
-textarea{min-height:110px;resize:vertical}
-label{display:block;margin:10px 0 4px;color:var(--dim);font-size:12px}
-.row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px}
-.row label{margin:0;display:flex;gap:6px;align-items:center;color:var(--ink);font-size:13px}
-.row input{width:auto}
-#drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,100vw);background:var(--panel);border-left:1px solid var(--line);padding:18px;overflow:auto;transform:translateX(100%);transition:transform .18s;z-index:10}
-#drawer.open{transform:none}
-#drawer h3{margin:0 0 4px;font-size:17px;overflow-wrap:anywhere}
-#drawer h4{margin:16px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
-#drawer p,#drawer li{overflow-wrap:anywhere}
-#drawer ul{padding-left:18px;margin:4px 0}
-.q{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
-.opt{display:block;width:100%;text-align:left;margin:4px 0}
-.opt.sel{border-color:var(--accent);background:var(--accent);color:#fff}
-pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:8px;padding:8px;font-size:12px;margin:4px 0}
-.ev{font-size:12px;color:var(--dim)}
-#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
-#toast.show{opacity:1}
-</style>
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header>
   <h1>◆ lonerchestrator <span id="proj" class="pill"></span></h1>
-  <span id="roles" class="pill"></span>
+  <span id="pills"></span>
   <span class="sp"></span>
   <span id="runstate" class="pill"><span class="dot" id="dot"></span><span id="runtxt">idle</span></span>
   <button id="run">Run</button>
   <button id="stop">Stop</button>
   <button id="newbtn" class="primary">＋ New request</button>
 </header>
+<nav id="tabs"></nav>
 <div id="problems"></div>
-<main id="board"></main>
+<main id="view"></main>
 
 <dialog id="newbox">
   <h3 style="margin:0 0 4px">New request</h3>
@@ -89,119 +39,6 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radi
 
 <aside id="drawer"></aside>
 <div id="toast"></div>
-
-<script>
-"use strict";
-const TOKEN = new URLSearchParams(location.search).get("t") || "";
-const COLS = [["backlog", "Backlog"], ["doing", "In progress"], ["review", "Review"], ["blocked", "Needs you"], ["done", "Done"]];
-let open = null;          // card id shown in the drawer
-let picked = {};          // answers being written: question index -> text
-
-// Every piece of text from the server is added as a text node, never parsed as markup.
-function h(tag, props, ...kids) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(props || {})) {
-    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e[k] = v;
-  }
-  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
-  return e;
-}
-async function api(path, body) {
-  const r = await fetch(path, {method: body === undefined ? "GET" : "POST", headers: {"X-Token": TOKEN, "Content-Type": "application/json"},
-                               body: body === undefined ? undefined : JSON.stringify(body)});
-  const j = await r.json().catch(() => ({error: "bad reply"}));
-  if (!r.ok) throw new Error(j.error || r.statusText);
-  return j;
-}
-function toast(msg) {
-  const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show");
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 3200);
-}
-const fail = e => toast(e.message || String(e));
-
-function cardEl(c) {
-  const meta = [h("span", {class: "chip"}, c.area)];
-  if (c.phase) meta.push(h("span", {class: "chip run"}, "● " + c.phase));
-  if (c.questions) meta.push(h("span", {class: "chip q"}, c.questions + (c.questions === 1 ? " question" : " questions")));
-  if (+c.attempts > 0) meta.push(h("span", {class: "chip"}, "try " + c.attempts));
-  if (c.depends) meta.push(h("span", {class: "chip"}, "after " + c.depends));
-  const el = h("div", {class: "card", onclick: () => show(c.id)}, h("div", {class: "t"}, c.title), h("div", {class: "m"}, meta));
-  if (c.tasks) el.append(h("div", {class: "bar"}, h("i", {style: "width:" + Math.round(100 * c.done / c.tasks) + "%"})));
-  return el;
-}
-function render(s) {
-  document.getElementById("proj").textContent = s.project + " · " + s.base;
-  document.getElementById("roles").textContent = "builder " + s.roles.builder + " · reviewers " + s.roles.qa + ", " + s.roles.cross +
-    (s.parallel > 1 ? " · " + s.parallel + " cards at once" : "") + (s.builders > 1 ? " · " + s.builders + " builders/card" : "");
-  document.getElementById("dot").className = "dot" + (s.running ? " on" : "");
-  document.getElementById("runtxt").textContent = s.running ? "running" : (s.run_msg || "idle");
-  document.getElementById("run").disabled = s.running;
-  document.getElementById("stop").disabled = !s.running;
-  const pr = document.getElementById("problems");
-  pr.style.display = s.problems.length ? "block" : "none";
-  pr.textContent = s.problems.length ? "Before it can run: " + s.problems.join(" · ") : "";
-  const board = document.getElementById("board");
-  board.replaceChildren(...COLS.filter(([k]) => k !== "review" || s.columns.review.length).map(([k, label]) => {
-    const cards = s.columns[k];
-    return h("section", {class: "col"}, h("h2", {}, label, h("span", {}, cards.length)),
-             cards.length ? cards.map(cardEl) : h("div", {class: "empty"}, k === "backlog" ? "Nothing queued: add a request" : "—"));
-  }));
-}
-async function refresh() {
-  try { render(await api("/api/state")); if (open) await drawer(open, true); } catch (e) { document.getElementById("runtxt").textContent = "offline"; }
-}
-
-function list(items, done) { return items.length ? h("ul", {}, items.map(i => h("li", {}, (done ? (i.done ? "☑ " : "☐ ") : "") + (done ? i.text : i)))) : h("p", {class: "ev"}, "—"); }
-async function drawer(id, keep) {
-  const c = await api("/api/card/" + encodeURIComponent(id));
-  const d = document.getElementById("drawer");
-  if (keep && d.querySelector("textarea:focus")) return;          // do not wipe what the user is typing
-  const kids = [h("button", {onclick: close}, "Close"), h("h3", {}, c.title),
-    h("div", {class: "ev"}, c.id + " · " + c.state + " · " + c.area + (c.phase ? " · " + c.phase : "")),
-    h("h4", {}, "Goal"), h("p", {}, c.goal || "—"),
-    h("h4", {}, "Acceptance criteria"), list(c.criteria, true)];
-  if (c.questions.length) {
-    kids.push(h("h4", {}, "The planner needs you"));
-    c.questions.forEach((q, i) => {
-      const ta = h("textarea", {placeholder: "or type your own answer", value: picked[i] || "", oninput: ev => { picked[i] = ev.target.value; }});
-      kids.push(h("div", {class: "q"}, h("div", {}, (i + 1) + ". " + q.text),
-        q.options.map(o => h("button", {class: "opt" + (picked[i] === o ? " sel" : ""), onclick: () => { picked[i] = o; drawer(id); }}, o)), ta));
-    });
-    kids.push(h("div", {class: "row"},
-      h("button", {onclick: async () => { try { await api("/api/suggest", {id}); drawer(id); } catch (e) { fail(e); } }}, "Suggest answers"),
-      h("button", {class: "primary", onclick: async () => {
-        try { await api("/api/answer", {id, answers: c.questions.map((_, i) => picked[i] || ""), run: true}); picked = {}; close(); toast("Answered: back in the queue"); refresh(); }
-        catch (e) { fail(e); } }}, "Send answers & run")));
-  }
-  if (c.state === "blocked" && !c.questions.length) kids.push(h("div", {class: "row"}, h("button", {onclick: async () => { try { await api("/api/requeue", {id}); close(); refresh(); } catch (e) { fail(e); } }}, "Send back to the backlog")));
-  kids.push(h("h4", {}, "Plan"), c.plan ? h("pre", {}, c.plan) : h("p", {class: "ev"}, "not planned yet"),
-    h("h4", {}, "Tasks"), list(c.tasks, true));
-  if (c.answers) kids.push(h("h4", {}, "Your answers"), h("pre", {}, c.answers));
-  kids.push(h("h4", {}, "What happened"), c.events.length ? h("div", {}, c.events.map(e => h("div", {class: "ev"}, e.ts.slice(11) + "  " + e.agent + "  " + (e.result || e.kind)))) : h("p", {class: "ev"}, "nothing yet"),
-    h("h4", {}, "Card log"), h("pre", {}, c.log.join("\n") || "—"));
-  d.replaceChildren(...kids);
-  d.classList.add("open");
-}
-function show(id) { if (open !== id) picked = {}; open = id; drawer(id).catch(fail); }
-function close() { open = null; document.getElementById("drawer").classList.remove("open"); }
-
-const nb = document.getElementById("newbox");
-document.getElementById("newbtn").onclick = () => { nb.showModal(); document.getElementById("ntext").focus(); };
-document.getElementById("ncancel").onclick = () => nb.close();
-document.getElementById("nsend").onclick = async () => {
-  const btn = document.getElementById("nsend"); btn.disabled = true; btn.textContent = "Understanding…";
-  try {
-    const r = await api("/api/new", {text: document.getElementById("ntext").value, area: document.getElementById("narea").value,
-                                     ai: document.getElementById("nai").checked, run: document.getElementById("nrun").checked});
-    nb.close(); document.getElementById("ntext").value = "";
-    toast("Created “" + r.draft.title + "” (" + r.draft.area + ", " + r.draft.source + ")" + (r.started ? " · working on it" : ""));
-    refresh();
-  } catch (e) { fail(e); } finally { btn.disabled = false; btn.textContent = "Create"; }
-};
-document.getElementById("run").onclick = () => api("/api/run", {}).then(refresh, fail);
-document.getElementById("stop").onclick = () => api("/api/stop", {}).then(refresh, fail);
-document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
-refresh(); setInterval(refresh, 2000);
-</script>
+<script src="/app.js"></script>
 </body>
 </html>

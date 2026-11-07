@@ -195,12 +195,16 @@ Verificados por **código**, não por prompt, antes dos testes:
 lonerchestrator web
 ```
 
-Abre um kanban no navegador, servido só para o seu computador (`127.0.0.1`, com um token aleatório no link que ele imprime). Colunas: Backlog, In progress, Needs you, Done. Atualiza sozinho enquanto o pipeline roda.
+Tudo que o painel do terminal faz, no navegador, servido só para o seu computador (`127.0.0.1`, com um token aleatório no link que ele imprime). Seis abas (teclas `1`-`6`), que se atualizam sozinhas enquanto o pipeline roda:
 
-- **＋ New request:** diga em palavras simples o que quer mudar. A IA do papel `suggester` lê o pedido e monta o card (título, qual agente constrói, objetivo, 2 a 5 critérios testáveis); sem IA disponível, usa um rascunho simples por regras, então o pedido nunca se perde. Marque *start working now* e o pipeline começa (ou pega o card se já estiver rodando). Pedido vago não tem problema: o planner pergunta em vez de chutar.
-- **Clique num card** para ver objetivo, critérios, plano, progresso das tarefas, o que cada agente fez e o log do card.
-- **Needs you:** as perguntas do planner vêm com 3 respostas sugeridas; clique em uma ou escreva a sua, depois *Send answers & run*. *Suggest answers* pede à IA quando o card veio sem sugestões.
-- **Run / Stop** controlam o pipeline, como `r` e `x` no painel do terminal.
+- **Board:** o kanban. **Arraste um card para outra coluna**: de Backlog para *Needs you* segura o card, de *Needs you* ou *Done* de volta para o Backlog recoloca na fila (um card pronto pode ser refeito), e soltar um card entre outros no Backlog define a prioridade (`priority:` no cabeçalho do card; menor roda primeiro). As colunas válidas acendem enquanto você arrasta; um card em andamento não pode ser movido, e só o pipeline move cards para *In progress* e *Done*. Sem mouse (ou no celular) abra o card e use *Move to*.
+- **Flow:** as etapas de um card (split, plan, build, checks, review, merge), os vereditos dos revisores independentes e o que aconteceu, do card em execução ou de qualquer recente.
+- **Planner:** todos os cards com objetivo, critérios, plano, progresso das tarefas e log. As perguntas vêm com 3 respostas sugeridas (clique em uma ou escreva a sua, depois *Send answers & run*); *Suggest answers* pede à IA quando o card veio sem.
+- **Agents:** a saída ao vivo de pipeline, planner, builder, qa, cross e retro.
+- **AIs:** quais modelos de IA estão ligados, quem faz o quê (splitter, planner, builder, retro, suggester, qa, cross), os limites da conta Claude ao vivo (sessão e semana, com a hora do reset), tokens e chamadas por modelo desta execução e de todas, *Detect again* e *Refresh limits*.
+- **Settings:** "Ready to run?" com o conserto exato de cada item, e todas as configurações (branch base, comando de CI, tentativas, cards ao mesmo tempo, builders por card, limites...). Salvar o comando de CI o aprova, como no terminal.
+
+**＋ New request** (em qualquer aba): diga em palavras simples o que quer mudar. A IA do papel `suggester` monta o card (título, qual agente constrói, objetivo, 2 a 5 critérios testáveis); sem IA disponível, usa um rascunho simples por regras, então o pedido nunca se perde. Marque *start working now* e o pipeline começa (ou pega o card se já estiver rodando). Pedido vago não tem problema: o planner pergunta em vez de chutar. **Run** e **Stop** ficam no cabeçalho.
 
 Segurança: a página só aceita pedidos com o token, vindos de `127.0.0.1`/`localhost` (proteção contra DNS rebinding) e, para alterações, da própria página (checagem de Origin). Tudo que o servidor envia é mostrado como texto, nunca como HTML. Use `--port N` para escolher a porta e `--no-open` para só imprimir o link.
 

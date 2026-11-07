@@ -96,6 +96,22 @@ def change(project, key, delta=1):
     return f"{label}: {show(new, key)}"
 
 
+def set_value(project, key, value):
+    """Set a bool/choice/branch setting to a given value (validated). Returns a message; raises ValueError for a value that is not allowed."""
+    if key not in KEYS:
+        raise ValueError("unknown setting")
+    label, kind, options = spec(key)[1], spec(key)[2], spec(key)[3]
+    if kind == "text":
+        raise ValueError("that setting is text")
+    allowed = [True, False] if kind == "bool" else branches(project) if kind == "branch" else options
+    if value not in allowed or isinstance(value, bool) != (kind == "bool"):
+        raise ValueError(f"{label}: not an allowed value")
+    raw = config.read_raw(project)
+    _put(raw, key, value)
+    config.write_raw(project, raw)
+    return f"{label}: {show(value, key)}"
+
+
 def set_text(project, key, text):
     """Save a free-text setting (only the CI command). Typing the command here is the approval, so it is trusted right away."""
     text = " ".join(clean(text).split())

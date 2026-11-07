@@ -197,12 +197,16 @@ Checked by **code**, not by prompts, before CI runs:
 lonerchestrator web
 ```
 
-Opens a kanban board in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Columns: Backlog, In progress, Needs you, Done. It updates by itself while the pipeline runs.
+Everything the terminal panel does, in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Six tabs (keys `1`-`6`), updated by themselves while the pipeline runs:
 
-- **＋ New request:** say what you want changed in plain words. The AI with the `suggester` role reads it and drafts the card (title, which agent builds it, goal, 2 to 5 testable criteria); without a reachable AI a plain rule-based draft is used, so a request is never lost. Tick *start working now* and the pipeline starts (or picks the card up if it is already running). A vague request is fine: the planner asks you instead of guessing.
-- **Click a card** to see its goal, criteria, plan, task progress, what each agent did, and the card log.
-- **Needs you:** the planner's questions come with 3 suggested answers; click one or type your own, then *Send answers & run*. *Suggest answers* asks the AI for them when a card came without.
-- **Run / Stop** control the pipeline, like `r` and `x` in the terminal panel.
+- **Board:** the kanban. **Drag a card to another column**: Backlog to *Needs you* holds it, *Needs you* or *Done* back to Backlog re-queues it (a finished card can be redone), and dropping a card between others in the Backlog sets its priority (`priority:` in the card header; lower runs first). Valid columns light up while you drag; a card being worked on cannot be moved, and only the pipeline moves cards into *In progress* and *Done*. Without a mouse (or on a phone) open the card and use *Move to*.
+- **Flow:** the stages of a card (split, plan, build, checks, review, merge), the independent reviewers' verdicts and what happened, for the running card or any recent one.
+- **Planner:** every card with its goal, criteria, plan, task progress and log. Questions come with 3 suggested answers (click one or type your own, then *Send answers & run*); *Suggest answers* asks the AI when a card came without.
+- **Agents:** the live output of the pipeline, planner, builder, qa, cross and retro.
+- **AIs:** which AI models are on, who does what (splitter, planner, builder, retro, suggester, qa, cross), live Claude account limits (session and week, with reset time), tokens and calls per model for this run and all runs, *Detect again* and *Refresh limits*.
+- **Settings:** "Ready to run?" with the exact fix for each item, and every setting (base branch, CI command, attempts, cards at once, builders per card, limits, ...). Saving the CI command approves it, like in the terminal.
+
+**＋ New request** (any tab): say what you want changed in plain words. The AI with the `suggester` role drafts the card (title, which agent builds it, goal, 2 to 5 testable criteria); without a reachable AI a plain rule-based draft is used, so a request is never lost. Tick *start working now* and the pipeline starts (or picks the card up if it is already running). A vague request is fine: the planner asks you instead of guessing. **Run** and **Stop** are in the header.
 
 Safety: the page only accepts requests that carry the token, come from `127.0.0.1`/`localhost` (DNS-rebinding check) and, for changes, from the page itself (Origin check). Everything the server sends is shown as text, never as HTML. Use `--port N` to pick a port and `--no-open` to only print the link.
 

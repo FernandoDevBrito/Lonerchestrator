@@ -34,6 +34,12 @@ class Card:
             t = t.replace("---\n", f"---\n{key}: {value}\n", 1)
         self.path.write_text(t, encoding="utf-8")
 
+    def priority(self):
+        try:
+            return int(self.get("priority", "") or 1000)
+        except ValueError:
+            return 1000
+
     @property
     def title(self):
         return self.get("title", self.id)
@@ -120,7 +126,11 @@ class Board:
             (self.root / s / ".gitkeep").touch()
 
     def cards(self, state):
-        return [Card(p) for p in sorted((self.root / state).glob("*.md"))]
+        """Cards of a column. A card may say `priority: 10` in its header (lower runs first); without it the file name decides."""
+        cards = [Card(p) for p in sorted((self.root / state).glob("*.md"))]
+        if state == "backlog":
+            cards.sort(key=lambda c: c.priority())
+        return cards
 
     def ready(self, card):
         """A card with `depends: 001-a, 002-b` waits until those cards are in done/ (or no longer exist anywhere)."""

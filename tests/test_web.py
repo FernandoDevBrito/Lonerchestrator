@@ -119,5 +119,77 @@ def test_nobody_without_the_token_host_or_origin_gets_in(server, project):
 
 
 def test_the_page_never_puts_server_text_in_innerhtml():
-    html = (web.STATIC / "index.html").read_text(encoding="utf-8")
-    assert "innerHTML" not in html and "outerHTML" not in html and "insertAdjacentHTML" not in html and "document.write" not in html
+    for name in ("index.html", "app.js", "style.css"):
+        text = (web.STATIC / name).read_text(encoding="utf-8")
+        assert not any(bad in text for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(")), name
+
+
+def test_drag_and_drop_moves_follow_the_rules(server, project):
+    call, runner, *_ = server
+    from orch.board import Card
+    add_card(project, "001-a")
+    add_card(project, "002-b")
+    s = j(call("GET", "/api/state"))
+    assert s["columns"]["backlog"][0]["moves"] == ["blocked"]                                       # the page greys out other columns
+    assert call("POST", "/api/move", {"id": "001-a", "to": "doing"})[0] == 400                       # only the pipeline moves cards into doing/done
+    assert call("POST", "/api/move", {"id": "001-a", "to": "done"})[0] == 400
+    assert j(call("POST", "/api/move", {"id": "001-a", "to": "blocked"}))["to"] == "blocked"         # hold a card
+    assert [c.id for c in Board(project).cards("blocked")] == ["001-a"]
+    assert j(call("POST", "/api/move", {"id": "001-a", "to": "backlog"}))["to"] == "backlog"
+    Card(project / "board" / "backlog" / "002-b.md").move("done")
+    assert call("POST", "/api/move", {"id": "002-b", "to": "backlog"})[0] == 200                     # redo a finished card
+    Card(project / "board" / "backlog" / "002-b.md").move("doing")
+    runner.running = lambda: True
+    assert call("POST", "/api/move", {"id": "002-b", "to": "backlog"})[0] == 409                     # being worked on: hands off
+    assert call("POST", "/api/move", {"id": "nope", "to": "blocked"})[0] == 404
+
+
+def test_reorder_sets_the_priority_the_pipeline_follows(server, project):
+    call, *_ = server
+    for n in ("001-a", "002-b", "003-c"):
+        add_card(project, n)
+    assert call("POST", "/api/reorder", {"ids": ["003-c", "001-a"]})[0] == 409                      # must list the whole backlog
+    assert call("POST", "/api/reorder", {"ids": ["003-c", "001-a", "002-b"]})[0] == 200
+    assert [c.id for c in Board(project).cards("backlog")] == ["003-c", "001-a", "002-b"]
+    assert [c["id"] for c in j(call("GET", "/api/state"))["columns"]["backlog"]] == ["003-c", "001-a", "002-b"]
+
+
+def test_flow_agents_ais_and_settings_tabs(server, project):
+    import json as _json
+
+    from orch import intro
+    call, *_ = server
+    root = project / ".orchestrator"
+    (root / "runs" / "r1").mkdir(parents=True)
+    (root / "state.json").write_text(_json.dumps({"run": "r1", "card": "001-a", "phase": "review 1", "active": {"001-a": "review 1"}}))
+    ev = [{"ts": "2026-01-01 10:00:00", "kind": "build", "card": "001-a", "agent": "backend", "result": "attempt 1: done"},
+          {"ts": "2026-01-01 10:00:09", "kind": "review", "card": "001-a", "agent": "qa", "result": "APPROVED"}]
+    (root / "runs" / "r1" / "events.jsonl").write_text("\n".join(_json.dumps(e) for e in ev))
+    (root / "streams").mkdir(exist_ok=True)
+    (root / "streams" / "builder.log").write_text("> Edit x.py\n\x1b[31mRESULT: DONE\x1b[0m\n")
+    add_card(project, "001-a")
+    f = j(call("GET", "/api/flow"))
+    assert f["card"] == "001-a" and [s["status"] for s in f["stages"]][4] == "running" and f["reviewers"][0] == {"name": "qa", "status": "ok", "verdict": "APPROVED"}
+    a = j(call("GET", "/api/agents"))
+    builder = next(x for x in a["agents"] if x["name"] == "builder")
+    assert builder["lines"][-1] == "RESULT: DONE" and next(x for x in a["agents"] if x["name"] == "qa")["live"]      # terminal escapes are cleaned
+
+    intro.save_ais(project, {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "opus"]},
+                             "agy": {"installed": True, "logged_in": True, "models": ["gemini-x"]}})
+    ais = j(call("GET", "/api/ais"))
+    assert [m["key"] for m in ais["ais"][0]["models"]] == ["claude/sonnet", "claude/opus"] and "usage" not in ais and "limits" in ais
+    assert call("POST", "/api/ais/toggle", {"key": "agy/gemini-x"})[0] == 200
+    assert call("POST", "/api/ais/toggle", {"key": "evil/x"})[0] == 400
+    assert call("POST", "/api/ais/assign", {"slot": "cross", "key": "agy/gemini-x"})[0] == 200
+    assert call("POST", "/api/ais/assign", {"slot": "builder", "key": "nope/x"})[0] == 400
+    assert next(s for s in j(call("GET", "/api/ais"))["slots"] if s["slot"] == "cross")["key"] == "agy/gemini-x"
+
+    st = j(call("GET", "/api/settings"))
+    assert {s["key"] for s in st["settings"]} >= {"base", "ci", "parallel", "builders"} and st["checks"] and "summary" in st
+    assert call("POST", "/api/settings/set", {"key": "parallel", "value": 3})[0] == 200
+    assert call("POST", "/api/settings/set", {"key": "parallel", "value": 99})[0] == 400                 # only allowed values
+    assert call("POST", "/api/settings/set", {"key": "split", "value": "yes"})[0] == 400                   # a bool must be a bool
+    assert call("POST", "/api/settings/set", {"key": "nope", "value": 1})[0] == 400
+    assert call("POST", "/api/settings/set", {"key": "ci", "value": "echo ok"})[0] == 200
+    assert [s for s in j(call("GET", "/api/settings"))["settings"] if s["key"] == "parallel"][0]["value"] == 3
+    assert call("GET", "/app.js", token=False)[0] == 200 and call("GET", "/style.css", token=False)[0] == 200   # the page's own files

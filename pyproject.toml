@@ -1,0 +1,16 @@
+[project]
+name = "orch"
+version = "0.1.0"
+description = "Local multi-agent orchestrator (Claude Code + Antigravity/Gemini) for any project"
+requires-python = ">=3.10"
+dependencies = []   # stdlib only
+
+[tool.ruff]
+line-length = 140
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]

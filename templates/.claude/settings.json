@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/ci.sh:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m ruff:*)",
+      "Bash(python -m compileall:*)",
+      "Bash(python main.py:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git branch --show-current)",
+      "Bash(agy -p:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(rm -r:*)",
+      "Bash(rmdir:*)",
+      "Bash(del:*)",
+      "Bash(Remove-Item:*)",
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch -D:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Edit(scripts/**)",
+      "Edit(.claude/**)",
+      "Edit(CLAUDE.md)",
+      "Edit(GEMINI.md)",
+      "Edit(board/_log.md)"
+    ]
+  }
+}

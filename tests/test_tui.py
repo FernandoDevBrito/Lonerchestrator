@@ -5,7 +5,7 @@ from conftest import CARD, add_card
 
 from orch import tui
 
-SCREENS = range(5)
+SCREENS = range(6)
 
 
 def seed_running(project):

@@ -90,7 +90,7 @@ lonerchestrator init         # instala board, agentes, guardrails, context/ e fa
 
 ## O painel
 
-`lonerchestrator` (sem argumentos) abre uma janela do Windows Terminal já em **120×34**, com cinco abas:
+`lonerchestrator` (sem argumentos) abre uma janela do Windows Terminal já em **120×34**, com seis abas:
 
 | Aba | Mostra |
 |---|---|
@@ -99,10 +99,16 @@ lonerchestrator init         # instala board, agentes, guardrails, context/ e fa
 | **3 Planner** | Card selecionado: objetivo, critérios, plano, tarefas (`[ ]`/`[x]`), perguntas pra você e histórico |
 | **4 Agents** | O que cada agente está fazendo agora, em seis painéis alinhados |
 | **5 AIs** | Checklist das IAs/modelos que você permite, quem faz o quê e o seu **uso em tempo real** (veja abaixo) |
+| **6 Settings** | As opções do projeto e um **"Ready to run?"** que diz o que ainda falta e como resolver |
 
-Teclas: `←→↑↓` mover/selecionar · `1`-`5` ou `Tab` trocar de aba · `a` responder um card bloqueado · `PgUp`/`PgDn` rolar · `r` rodar o pipeline · `x` parar · `q` sair.
+Teclas: `←→↑↓` mover/selecionar · `1`-`6` ou `Tab` trocar de aba · `a` responder um card bloqueado · `PgUp`/`PgDn` rolar · `r` rodar o pipeline · `x` parar · `q` sair.
 
 Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 120×34).
+
+### A aba Settings: configure sem editar JSON
+
+- **Settings** (esquerda): branch base, comando de CI, tentativas por card, quebrar cards grandes, limite de tempo, máximo de arquivos e de linhas por card, texto completo dos agentes e rodar seus próprios git hooks. `↑↓` move, `←/→` ou `espaço` muda o valor, `Enter` edita o comando de CI. Cada mudança é salva na hora em `.orchestrator/config.json`, e a linha embaixo da lista explica a opção selecionada. O comando de CI que você digita aqui é aprovado automaticamente (foi você que escreveu).
+- **Ready to run?** (direita): Git e a branch base, Claude Code instalado e logado, os dois revisores, o comando de CI (o script existe, está aprovado), `context/project.md` preenchido, o Claude Code confiando na pasta e cards no backlog. O que faltar mostra o conserto exato. Abra esta aba primeiro em um projeto novo.
 
 ### A aba AIs: escolha suas IAs e acompanhe o uso
 
@@ -112,7 +118,7 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
   - **Claude Code**: os limites da sua conta, **sessão de 5 horas** e **semanal**, em barras com o horário de reset (os mesmos números do `/usage`), mais tokens por modelo nesta execução e em todas. Atualizam a cada chamada de agente; `u` atualiza na hora (uma chamada mínima com haiku).
   - **Antigravity (`agy`)**: só tokens por modelo. O `agy` não expõe a cota restante, e o painel diz isso em vez de inventar um número.
   - O cabeçalho mostra sempre a versão compacta, ex.: `claude ● 5h 52% wk 19%   agy ● 18.0k tok`.
-- `d` detecta de novo em quais IAs você está logado.
+- `d` detecta de novo em quais IAs você está logado. Uma IA que não está pronta mostra como resolver (instalar ou logar).
 
 ## Comandos
 

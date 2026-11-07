@@ -90,7 +90,7 @@ lonerchestrator init       # installs board, agents, guardrails, context/ and ru
 
 ## The panel
 
-Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** with five tabs:
+Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** with six tabs:
 
 | Tab | Shows |
 |---|---|
@@ -99,8 +99,14 @@ Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** wit
 | **3 Planner** | The selected card: goal, criteria, plan, tasks (`[ ]`/`[x]`), questions for you, history |
 | **4 Agents** | What each agent is doing right now, in six aligned live panes |
 | **5 AIs** | A checklist of the AIs/models you allow, who does what, and your **live usage** (see below) |
+| **6 Settings** | Your project's options and a **"Ready to run?"** check that tells you what is still missing and how to fix it |
 
-Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `a` answer a blocked card · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
+Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `a` answer a blocked card · `PgUp`/`PgDn` scroll · `r` run the pipeline · `x` stop · `q` quit.
+
+### The Settings tab: configure without editing JSON
+
+- **Settings** (left): base branch, CI command, attempts per card, split big cards, time limit, max files and changed lines per card, full agent text, and running your own git hooks. `↑↓` move, `←/→` or `space` change a value, `Enter` edits the CI command. Each change is saved to `.orchestrator/config.json` at once, and the line under the list explains the selected option. The CI command you type here is approved automatically (you wrote it).
+- **Ready to run?** (right): Git and the base branch, Claude Code installed and logged in, the two reviewers, the CI command (script exists, approved), `context/project.md` filled in, Claude Code trusting the folder, and cards in the backlog. Anything missing shows the exact fix. Open this tab first in a new project.
 
 ### The AIs tab: choose your AIs, watch your usage
 
@@ -110,7 +116,7 @@ Keys: `←→↑↓` move/select · `1`–`5` or `Tab` switch tab · `a` answer 
   - **Claude Code**: your account's **5-hour session** and **weekly** limits as bars with the reset time (the same numbers as `/usage`), plus tokens per model for this run and all runs. They update after every agent call; press `u` to refresh on demand (one tiny haiku call).
   - **Antigravity (`agy`)**: tokens per model only. `agy` does not expose remaining quota, and the panel says so instead of inventing a number.
   - The header always shows the compact version, e.g. `claude ● 5h 52% wk 19%   agy ● 18.0k tok`.
-- `d` re-detects which AIs you are logged in to.
+- `d` re-detects which AIs you are logged in to. An AI that is not ready shows how to fix it (install or log in).
 
 ## Commands
 

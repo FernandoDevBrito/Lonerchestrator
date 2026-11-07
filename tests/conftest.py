@@ -73,6 +73,7 @@ def log(project):
 def isolated_home(tmp_path_factory, monkeypatch):
     """Account-level files (limits.json) must never touch the real home directory during tests."""
     monkeypatch.setenv("LONERCHESTRATOR_HOME", str(tmp_path_factory.mktemp("lc_home")))
+    monkeypatch.setenv("LONERCHESTRATOR_CLAUDE_JSON", str(tmp_path_factory.mktemp("lc_claude") / "none.json"))   # never read the real ~/.claude.json
 
 
 def add_card(project, name="001-thing", text=CARD):

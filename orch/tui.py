@@ -9,14 +9,14 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import answer, config, menu, term, usage
+from . import answer, checks, config, menu, settings, term, usage
 from .board import Board, Card
 from .safe import clean, keep_sgr
 from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
 
 W, H = 120, 34
 CH = H - 5                                   # content rows: header, tabs, rule, [content], now, keys
-TABS = ["Board", "Flow", "Planner", "Agents", "AIs"]
+TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"]
 COLS = [("To do", "backlog", "dim"), ("Doing", "doing", "running"), ("Done", "done", "ok"), ("Needs you", "blocked", "fail")]
 CODE = {"text": "38;5;252", "bold": "1;38;5;255", "dim": "38;5;243", "faint": "38;5;239", "pending": "38;5;243",
         "ok": "38;5;78", "running": "38;5;214", "fail": "38;5;203", "info": "38;5;110", "accent": "1;38;5;80",
@@ -96,6 +96,7 @@ class UI:
     def __init__(self):
         self.screen, self.col, self.row, self.scroll = 0, 0, 0, 0
         self.cursor, self.msg = 0, ""              # AIs tab: cursor over checklist + role rows, last action message
+        self.scur, self.edit_key, self.checks, self.checks_t = 0, "", [], 0.0      # Settings tab: cursor, field being edited, cached readiness
         self.mode, self.qcard, self.qs, self.ans, self.buf = None, "", [], [], ""      # answering a blocked card's questions
 
 
@@ -147,7 +148,9 @@ class Ctx:
     def now(self):
         if self.ui.mode == "answer":
             return paint("info", f"\u25b8 answering {self.ui.qcard.split('-')[0]}") + paint("dim", f" \u00b7 question {len(self.ui.ans) + 1} of {len(self.ui.qs)}")
-        if self.ui.msg and self.ui.screen in (0, 2):
+        if self.ui.mode == "edit":
+            return paint("info", f"\u25b8 editing {settings.spec(self.ui.edit_key)[1]}")
+        if self.ui.msg and self.ui.screen in (0, 2, 5):
             return paint("ok", "\u25b8 " + self.ui.msg)
         if self.cur is None:
             blocked = self.items["blocked"]
@@ -459,7 +462,11 @@ def ai_rows(x):
     for cli, label in (("claude", "Claude Code"), ("agy", "Antigravity")):
         info = x.ais.get(cli, {})
         state = "logged in" if info.get("logged_in") else ("not logged in" if info.get("installed") else "not installed")
-        rows.append(("head", cli, label, state if info else "not detected · press d"))
+        rows.append(("head", cli, label, state if info else "not detected \u00b7 press d"))
+        if info and not info.get("logged_in"):
+            how = {"claude": "install: https://claude.com/claude-code" if not info.get("installed") else "run `claude`, log in, then press d",
+                   "agy": "optional, Gemini models: antigravity.google" if not info.get("installed") else "run `agy`, log in, then press d"}[cli]
+            rows.append(("hint", how))
         rows += [("item", menu.keyof(c, m)) for c, m in x.avail if c == cli]
     return rows
 
@@ -482,6 +489,9 @@ def screen_ais(x):
     # --- checklist
     lines, sel_line = [], 0
     for r in rows:
+        if r[0] == "hint":
+            lines.append("   " + paint("running", "\u2192 ") + paint("dim", clip(r[1], lw - 8)))
+            continue
         if r[0] == "head":
             _, cli, label, state = r
             ok = state == "logged in"
@@ -558,7 +568,76 @@ def handle_ais(key, ui, x):
     return True
 
 
-SCREENS = [screen_board, screen_flow, screen_planner, screen_agents, screen_ais]
+def check_line(status, title, hint, w):
+    g = {"ok": paint("ok", "\u2713"), "warn": paint("running", "!"), "fail": paint("fail", "\u00d7")}[status]
+    out = [" " + g + " " + paint("text" if status == "ok" else "bold", clip(title, w - 4))]
+    out += ["     " + paint("dim", ln) for ln in wrap(hint, w - 6)] if hint else []
+    return out
+
+
+def screen_settings(x):
+    ui = x.ui
+    n = len(settings.SPEC)
+    ui.scur = min(max(ui.scur, 0), n - 1)
+    if not ui.checks or time.time() - ui.checks_t > 3:                 # a few git calls: refresh every few seconds, not every frame
+        ui.checks, ui.checks_t = checks.readiness(x.project), time.time()
+    lw = 62
+    left = [" " + rule(lw - 2, "Settings"), ""]
+    for i, (key, label, kind, _o, _u, _h) in enumerate(settings.SPEC):
+        val = clip(settings.show(settings.get(x.cfg, key), key), 30)
+        if i == ui.scur:
+            left.append(selrow(f"   {label:<26}" + (f"\u2039 {val} \u203a" if kind != "text" else f"{val}"), lw))
+        else:
+            left.append(f"   {paint('text', f'{label:<26}')}" + paint("ok" if val == "on" else "dim" if val == "off" else "text", val))
+    cur = settings.SPEC[ui.scur]
+    left += ["", " " + rule(lw - 2, f"Editing {cur[1]}" if ui.mode == "edit" else "About this setting")]
+    if ui.mode == "edit":
+        typed = wrap(ui.buf + "\u258c", lw - 6)
+        left += [paint("info", "   \u203a ") + typed[0]] + ["     " + t for t in typed[1:]]
+        left += ["", paint("dim", "   Enter save  \u00b7  Esc cancel")]
+    else:
+        left += ["   " + paint("dim", ln) for ln in wrap(cur[5], lw - 6)]
+        left += ["", paint("info", "   Enter to edit the text") if cur[2] == "text" else paint("faint", "   \u2190/\u2192 or space to change")]
+    # readiness
+    ready, text = checks.summary(ui.checks)
+    warns = any(c[0] == "warn" for c in ui.checks)
+    right = [" " + rule(54, "Ready to run?"), " " + paint("ok" if ready and not warns else "running" if ready else "fail", ("\u2713 " if ready and not warns else "") + text), ""]
+    for st, title, hint in ui.checks:
+        right += check_line(st, title, hint, 55)
+    sep = paint("faint", "\u2502")
+    return [f"{a}{sep}{b}" for a, b in zip(fit(left, CH, lw), fit(right, CH, 57), strict=True)]
+
+
+def handle_settings(key, ui, x):
+    """Keys of the Settings tab. True when the key was consumed."""
+    cur = settings.SPEC[ui.scur]
+    if key in ("up", "down"):
+        ui.scur = (ui.scur + (-1 if key == "up" else 1)) % len(settings.SPEC)
+    elif key in ("left", "right"):
+        ui.msg, ui.checks_t = settings.change(x.project, cur[0], -1 if key == "left" else 1), 0.0
+    elif key in (" ", "\r", "\n"):
+        if cur[2] == "text":
+            ui.mode, ui.edit_key, ui.buf = "edit", cur[0], str(settings.get(x.cfg, cur[0]))
+        else:
+            ui.msg, ui.checks_t = settings.change(x.project, cur[0], 1), 0.0
+    else:
+        return False
+    return True
+
+
+def edit_key(key, ui, x):
+    """Every key while editing a text setting (q, digits and letters are text here)."""
+    if key in ("\r", "\n"):
+        ui.msg, ui.mode, ui.checks_t = settings.set_text(x.project, ui.edit_key, ui.buf), None, 0.0
+    elif key == "\x1b":
+        ui.mode, ui.msg = None, "edit cancelled"
+    elif key in ("\x7f", "\x08"):
+        ui.buf = ui.buf[:-1]
+    elif len(key) == 1 and key >= " ":
+        ui.buf += key
+
+
+SCREENS = [screen_board, screen_flow, screen_planner, screen_agents, screen_ais, screen_settings]
 
 
 # --------------------------------------------------------------------------- frame
@@ -574,10 +653,14 @@ def frame(x):
     tabs_line = " " + tabs + " " * max(W - vlen(tabs) - vlen(run) - 2, 1) + run + " "
     if x.ui.mode == "answer":
         keys = " type your answer   Enter next question   Esc cancel   Backspace erase"
+    elif x.ui.mode == "edit":
+        keys = " type the new value   Enter save   Esc cancel   Backspace erase"
+    elif x.ui.screen == 5:
+        keys = " \u2191\u2193 move   \u2190\u2192 / space change   Enter edit text   1-6 tabs   q quit"
     elif x.ui.screen == 4:
-        keys = " \u2191\u2193 move   space toggle   \u2190\u2192 model   u refresh limits   d detect   1-5 tabs   q quit"
+        keys = " \u2191\u2193 move   space toggle   \u2190\u2192 model   u refresh limits   d detect   1-6 tabs   q quit"
     else:
-        keys = " \u2190\u2192\u2191\u2193 move   tab / 1-5 views   a answer   r run   x stop   PgUp PgDn scroll   q quit"
+        keys = " \u2190\u2192\u2191\u2193 move   tab / 1-6 views   a answer   r run   x stop   PgUp PgDn scroll   q quit"
     body = fit(SCREENS[x.ui.screen](x), CH)
     lines = [pad(clip_ansi(head, W), W), pad(clip_ansi(tabs_line, W), W), paint("faint", "─" * W)] + body \
         + [pad(clip_ansi(" " + x.now(), W), W), paint("faint", pad(keys, W))]
@@ -631,14 +714,19 @@ def handle(key, ui, x, runner):
     if ui.mode == "answer":
         answer_key(key, ui, x)
         return
+    if ui.mode == "edit":
+        edit_key(key, ui, x)
+        return
     ui.msg = "" if ui.screen != 4 else ui.msg
     if key == "a" and ui.screen in (0, 2):
         start_answer(x)
-    elif key and key in "12345":
+    elif key and key in "123456":
         ui.screen, ui.scroll = int(key) - 1, 0
     elif key == "\t":
         ui.screen, ui.scroll = (ui.screen + 1) % len(TABS), 0
     elif ui.screen == 4 and handle_ais(key, ui, x):
+        pass
+    elif ui.screen == 5 and handle_settings(key, ui, x):
         pass
     elif key == "left" and ui.screen == 0:
         ui.col, ui.row = (ui.col - 1) % n, ui.row

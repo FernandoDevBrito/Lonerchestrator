@@ -5,3 +5,7 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+# orchestrator runtime state (when you run it on this repo itself)
+.orchestrator/
+board/

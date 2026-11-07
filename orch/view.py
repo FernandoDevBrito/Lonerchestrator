@@ -1,5 +1,5 @@
-"""ASCII board, n8n style: pipeline nodes with sub-nodes (model/agent/memory), kanban columns, live events.
-render() is a pure function of the files in the project, `loop()` just redraws it."""
+"""Simple ASCII board: six pipeline nodes (who + status), one plain-language 'NOW' line, card columns, latest events.
+render() is a pure function of the files in the project; loop() just redraws it."""
 import json
 import shutil
 import sys
@@ -7,13 +7,23 @@ import time
 from pathlib import Path
 
 from . import config
-from .board import STATES, Board, Card
+from .board import Board, Card
 
-STAGES = ["CARD", "PLAN", "BUILD", "GUARD", "CI", "REVIEW", "MERGE"]
-PHASE_IDX = {"plan": 1, "build": 2, "guardrails": 3, "ci": 4, "review": 5, "merge": 6, "retro": 6}
-KIND_IDX = {"plan": 1, "build": 2, "guardrails": 3, "ci": 4, "review": 5, "card_done": 6, "retro": 6}
+STAGES = ["SPLIT", "PLAN", "BUILD", "CHECKS", "REVIEW", "MERGE"]
+PHASE_IDX = {"split": 0, "plan": 1, "build": 2, "guardrails": 3, "ci": 3, "review": 4, "merge": 5, "retro": 5}
+KIND_IDX = {"split": 0, "plan": 1, "build": 2, "guardrails": 3, "ci": 3, "review": 4, "card_done": 5, "retro": 5}
 BAD = ("fail", "violation", "reject", "blocked", "invalid")
 CODE = {"ok": "32", "running": "33", "fail": "31", "pending": "90", "info": "36"}
+WORDS = {"ok": "done", "running": "RUNNING", "fail": "FAILED", "pending": "waiting"}
+NOW = {
+    "split": "splitter is checking if the card is too big",
+    "plan": "planner is writing the plan and the task list",
+    "build": "builder is writing the code",
+    "guardrails": "checking the rules (protected files, size, secrets)",
+    "ci": "running lint, tests and build",
+    "merge": "merging into the base branch",
+    "retro": "retro is saving what we learned",
+}
 
 
 def _json(f):
@@ -42,17 +52,12 @@ def _cut(s, w):
     return s if len(s) <= w else s[: max(w - 2, 1)] + ".."
 
 
-def _who(sel):
-    return f"{sel.get('cli', sel.get('kind', 'claude'))[0]}:{sel.get('model') or 'default'}"
-
-
 def stage_status(evs, cur):
-    """status per stage for one card: running at the current phase, later stages reset, earlier ones from their last result."""
+    """Running at the current phase, later stages reset to waiting, earlier ones from their last result."""
     st = ["pending"] * len(STAGES)
-    st[0] = "ok"
     for e in evs:
         i = KIND_IDX.get(e["kind"])
-        if i:
+        if i is not None:
             res = e.get("result", "").lower()
             st[i] = "fail" if any(b in res for b in BAD) else "ok"
     if cur is not None:
@@ -62,7 +67,7 @@ def stage_status(evs, cur):
 
 
 def reviewer_status(evs, cur, names):
-    """latest verdict per reviewer for the current attempt; 'running' while review is the live phase and no verdict yet."""
+    """Latest verdict per reviewer for the current attempt; 'running' while review is live and no verdict yet."""
     last_build = max((i for i, e in enumerate(evs) if e["kind"] == "build"), default=-1)
     got = {e["agent"]: e["result"] for e in evs[last_build + 1:] if e["kind"] == "review"}
     out = {}
@@ -72,7 +77,16 @@ def reviewer_status(evs, cur, names):
     return out, got
 
 
-def render(project, width=110, height=40, color=True):
+def _sentence(e):
+    k, r, a = e["kind"], e.get("result", ""), e["agent"]
+    if k == "ci":
+        return "tests " + r.split(":")[-1].strip()
+    if k == "review":
+        return f"{a} review: {r}"
+    return f"{a}: {r or k}"
+
+
+def render(project, width=110, height=30, color=True):
     project = Path(project).resolve()
     cfg = config.load(project)
     st, ev = load_events(project)
@@ -87,80 +101,64 @@ def render(project, width=110, height=40, color=True):
     def c(kind, text):
         return f"\x1b[{CODE[kind]}m{text}\x1b[0m" if color else text
 
-    # ---- card facts
-    card = next((Card(p) for s in STATES for p in (project / "board" / s).glob(f"{card_id}.md")), None) if card_id else None
-    area = card.area if card else "backend"
-    agent = cfg["agents"].get(area, "backend")
-    attempt = phase.split()[1].split("/")[0] if " " in phase else (card.get("attempts", "0") if card else "0")
+    card = next(iter(Card(p) for s in ("backlog", "doing", "done", "blocked") for p in (project / "board" / s).glob(f"{card_id}.md")), None) if card_id else None
+    ai = "  ".join(f"{k} {c('ok', 'ok') if v.get('logged_in') else c('fail', 'no')}" for k, v in ais.get("ais", {}).items()) or "run `orch intro`"
+    tries = phase.split()[1].split("/")[0] if " " in phase else None
+    lines = [f" ORCH  {project.name}      AIs: {ai}      base: {cfg['base']}", ""]
+    lines.append(f" CARD  {c('info', card_id)}  {card.title if card else ''}" + (f"   (try {tries} of {cfg['max_attempts']})" if tries and cur is not None else "")
+                 if card_id else " CARD  none yet: add one with `orch new \"title\"`")
+    lines.append("")
 
-    # ---- header
-    ai = "  ".join(f"{k}:{c('ok', 'ok') if v.get('logged_in') else c('fail', 'no')}" for k, v in ais.get("ais", {}).items()) or "run `orch intro`"
-    lines = [f" ORCH  {project.name}   base: {cfg['base']}   run: {st.get('run', '-')}   AIs: {ai}",
-             f" card: {c('info', card_id) if card_id else '-'}   area: {area}   phase: {phase}   attempt: {attempt}/{cfg['max_attempts']}", ""]
-
-    # ---- nodes
-    nw = 12 if width >= 108 else 10
-    iw, gap = nw - 2, 4 if width >= 108 else 3
+    # ---- pipeline: who does what, and where we are
     stat = stage_status(evs, cur)
     revs, got = reviewer_status(evs, cur, [r["name"] for r in cfg["reviewers"]])
-    names = ["#" + (card_id or "-").split("-")[0], "planner", "builder", "code", cfg["ci"].split()[-1].split("/")[-1], "qa+cross", "git+retro"]
-
-    def node(i):
+    r = cfg["roles"]
+    rv = "+".join(x.get("model", "?").split("-")[0][:6] for x in cfg["reviewers"])
+    who = [("splitter", r["splitter"]["model"] if cfg["split"] else "off"), ("planner", r["planner"]["model"]), ("builder", r["builder"]["model"]),
+           ("rules + ci", ""), ("qa + cross", rv), ("git", cfg["base"])]
+    nw = 14 if width >= 110 else 12
+    iw = nw - 2
+    boxes = []
+    for i, name in enumerate(STAGES):
         s = stat[i]
-        label = {"running": f"RUNNING {spin}", "ok": "ok", "fail": "FAIL", "pending": "."}[s]
-        rows = ["+" + "-" * iw + "+", "|" + _cut(STAGES[i], iw).center(iw) + "|", "|" + _cut(names[i], iw).center(iw) + "|",
-                "|" + _cut(label, iw).center(iw) + "|", "+" + "-" * iw + "+"]
-        return [c(s, r) for r in rows]
-
-    def sub(label, text, s):
-        top = (".-" + _cut(label, iw - 2) + "-" * iw)[: iw + 1] + "."
-        return [c(s, top), c(s, "|" + _cut(text, iw).center(iw) + "|"), c(s, "'" + "-" * iw + "'")]
-
-    pl, bu, rt = cfg["roles"]["planner"], cfg["roles"]["builder"], cfg["roles"]["retro"]
-    subs = {
-        0: [("Input", "board/", "info")],
-        1: [("Model", _who(pl), "info"), ("Memory", f"{area}.md", "info")],
-        2: [("Model", _who(bu), "info"), ("Agent", agent, "info")],
-        3: [("Rules", f"{len(cfg['guardrails']['protected'])} paths", "info"), ("Limit", f"{cfg['guardrails']['max_files']} files", "info")],
-        4: [("Cmd", cfg["ci"].replace("bash ", ""), "info")],
-        5: [(r["name"] + {"APPROVED": " OK", "REJECTED": " NO"}.get(got.get(r["name"]), ""), _who(r), revs[r["name"]]) for r in cfg["reviewers"][:2]],
-        6: [("Retro", _who(rt), "info"), ("Into", cfg["base"], "info")],
-    }
-    nodes = [node(i) for i in range(len(STAGES))]
-    for r in range(5):
-        row = " "
+        label = f"{spin} RUNNING" if s == "running" else WORDS[s]
+        rows = ["+" + "-" * iw + "+", f"|{(str(i + 1) + ' ' + name).center(iw)}|", f"|{_cut(who[i][0], iw).center(iw)}|",
+                f"|{_cut(who[i][1], iw).center(iw)}|", f"|{_cut(label, iw).center(iw)}|", "+" + "-" * iw + "+"]
+        boxes.append([c(s, x) for x in rows])
+    for row in range(6):
+        out = " "
         for i in range(len(STAGES)):
-            row += nodes[i][r]
+            out += boxes[i][row]
             if i < len(STAGES) - 1:
-                row += c("ok" if stat[i] == "ok" else "pending", ("--->" if gap == 4 else "-->")) if r == 2 else " " * gap
-        lines.append(row)
-    for level in range(2):
-        conn = " " + "".join((" " * (nw // 2) + c("pending", ":") + " " * (nw - nw // 2 - 1) if level < len(subs[i]) else " " * nw) + " " * gap
-                             for i in range(len(STAGES)))
-        lines.append(conn)
-        for r in range(3):
-            row = " "
-            for i in range(len(STAGES)):
-                row += (sub(*subs[i][level])[r] if level < len(subs[i]) else " " * nw) + " " * gap
-            lines.append(row)
+                out += c("ok" if stat[i] == "ok" else "pending", "-->") if row == 3 else "   "
+        lines.append(out)
+    lines.append("")
 
-    # ---- kanban
-    cw = max((width - 2) // len(STATES), 14)
-    lines += ["", " " + "".join(f"{(s.upper() + ' (' + str(len(board.cards(s))) + ')').ljust(cw)}" for s in STATES)]
-    room = max(height - len(lines) - 4, 2)
-    krows = min(4, max(room // 2, 1))
-    cols = {s: [x.id for x in board.cards(s)] for s in STATES}
-    kind = {"backlog": "pending", "doing": "running", "review": "running", "done": "ok", "blocked": "fail"}
-    for r in range(krows):
-        lines.append(" " + "".join(c(kind[s], _cut(("> " if s == "doing" else "") + cols[s][r], cw - 2).ljust(cw)) if r < len(cols[s])
-                                   else " " * cw for s in STATES))
+    # ---- one plain sentence about what is happening
+    if cur is None:
+        blocked = board.cards("blocked")
+        now = c("fail", f"NEEDS YOU: {blocked[-1].id}, answer its questions and move it back to backlog") if blocked else "idle, nothing running"
+    elif cur == PHASE_IDX["review"]:
+        now = "reviewing: " + ", ".join(f"{k} {'OK' if revs[k] == 'ok' else 'NO' if revs[k] == 'fail' else 'thinking'}" for k in revs)
+    else:
+        now = NOW.get(phase.split()[0], phase)
+    lines += [f" NOW   {now}", ""]
 
-    # ---- live events
-    lines += ["", " LIVE"]
-    n = max(height - len(lines) - 1, 1)
-    for e in ev[-n:]:
+    # ---- cards
+    cols = [("TO DO", "backlog", "pending"), ("DOING", "doing", "running"), ("DONE", "done", "ok"), ("NEEDS YOU", "blocked", "fail")]
+    cw = max((width - 2) // len(cols), 16)
+    items = {k: [x.id for x in board.cards(k)] for _, k, _ in cols}
+    lines.append(" " + "".join(f"{title} ({len(items[k])})".ljust(cw) for title, k, _ in cols))
+    room = max(height - len(lines) - 6, 1)
+    for n in range(min(4, room)):
+        lines.append(" " + "".join(c(kind, _cut(items[k][n], cw - 2).ljust(cw)) if n < len(items[k]) else " " * cw for _, k, kind in cols))
+    lines.append("")
+
+    # ---- latest
+    lines.append(" LATEST")
+    for e in ev[-max(min(5, height - len(lines) - 1), 1):]:
         bad = any(b in (e.get("result", "") + e["kind"]).lower() for b in BAD)
-        lines.append(" " + c("fail" if bad else "pending", _cut(f"{e['ts'][-8:]} {e['card'].split('-')[0]:>4} {e['agent']:<12} {e.get('result') or e['kind']}", width - 2)))
+        lines.append(" " + c("fail" if bad else "pending", _cut(f"{e['ts'][-8:-3]}  {e['card'].split('-')[0]:<4} {_sentence(e)}", width - 2)))
     return "\n".join(lines)
 
 
@@ -169,7 +167,7 @@ def loop(project):
     out.write("\x1b[?25l\x1b[2J")
     try:
         while True:
-            sz = shutil.get_terminal_size((110, 40))
+            sz = shutil.get_terminal_size((110, 30))
             frame = render(project, sz.columns, sz.lines)
             out.write("\x1b[H" + "\x1b[K\n".join(frame.splitlines()) + "\x1b[K\x1b[J")
             out.flush()

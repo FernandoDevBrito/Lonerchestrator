@@ -18,13 +18,23 @@ class RateLimitExhausted(Exception):
 
 
 def marker(text):
-    m = re.findall(r"^RESULT: (PLANNED|DONE|BLOCKED)", text, re.MULTILINE)
+    m = re.findall(r"^RESULT: (PLANNED|DONE|BLOCKED|SINGLE|SPLIT)", text, re.MULTILINE)
     return m[-1] if m else ""
 
 
 def verdict(text):
     m = re.findall(r"^VERDICT: (APPROVED|REJECTED)", text, re.MULTILINE)
     return m[-1] if m else "REJECTED"   # no verdict = not approved
+
+
+def brief(text, width=150, keep=2):
+    """Short version for the live panes: first lines + any RESULT/VERDICT line. Full text stays in the run artifacts."""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    shown = lines[:keep] + [ln for ln in lines[keep:] if ln.startswith(("RESULT:", "VERDICT:"))]
+    out = [ln if len(ln) <= width else ln[: width - 2] + ".." for ln in shown]
+    if len(lines) > len(shown):
+        out.append(f"  (+{len(lines) - len(shown)} more lines, full text saved in .orchestrator/runs)")
+    return chr(10).join(out)
 
 
 def _short(d):
@@ -78,10 +88,18 @@ class Runner:
             out = line
             if claude:
                 out, final = self._fmt(line, final)
+                if out and not self.cfg.get("verbose") and not out.startswith(("> ", "==")):
+                    shown.append(out)
+                    out = brief(out)
+                    self.log.say(role, out)
+                    continue
             if out:
                 shown.append(out)
-                self.log.say(role, out)
+                if claude or self.cfg.get("verbose"):
+                    self.log.say(role, out)
         rc = p.wait()
+        if not claude and not self.cfg.get("verbose") and shown:
+            self.log.say(role, brief("".join(shown), keep=8))
         return rc, (final if final is not None else "".join(shown)), "".join(raw)
 
     @staticmethod

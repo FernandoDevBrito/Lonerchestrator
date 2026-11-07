@@ -74,7 +74,7 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
         return next((i for i, (_, v) in enumerate(opts) if v == cur), 0)
 
     new = {"roles": {}, "reviewers": [], "agents": dict(cfg["agents"])}
-    for role in ("planner", "builder", "retro"):
+    for role in ("splitter", "planner", "builder", "retro"):
         cur = cfg["roles"][role]["model"]
         m = claude_opts[default_idx(claude_opts, cur)][1] if assume_yes else _pick(f"{role}: which Claude model?", claude_opts, default_idx(claude_opts, cur), ask, out)
         new["roles"][role] = {"cli": "claude", "model": m}
@@ -90,7 +90,7 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     if (a["kind"], a["model"]) == (b["kind"], b["model"]):
         out("\n  note: both reviewers use the same model, cross-review is weaker.")
     agents_dir = project / ".claude" / "agents"
-    have = sorted(p.stem for p in agents_dir.glob("*.md") if p.stem not in ("qa", "retro")) if agents_dir.exists() else []
+    have = sorted(p.stem for p in agents_dir.glob("*.md") if p.stem not in ("qa", "retro", "splitter")) if agents_dir.exists() else []
     for area in ("backend", "frontend", "both"):
         if have and not assume_yes:
             cur = cfg["agents"][area]

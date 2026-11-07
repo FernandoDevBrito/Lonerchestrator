@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 STREAMS = ("pipeline", "planner", "builder", "qa", "cross", "retro")
+ALIAS = {"splitter": "planner"}   # splitter shares the planner pane
 
 
 class Log:
@@ -26,6 +27,7 @@ class Log:
             self.table.write_text("| time | card | agent | result | duration |\n|---|---|---|---|---|\n", encoding="utf-8")
 
     def say(self, stream, text):
+        stream = ALIAS.get(stream, stream)
         with self._lock:
             with (self.streams_dir / f"{stream}.log").open("a", encoding="utf-8") as f:
                 f.write(text if text.endswith("\n") else text + "\n")
@@ -39,7 +41,7 @@ class Log:
                 f.write(json.dumps(rec) + "\n")
             with self.table.open("a", encoding="utf-8") as f:
                 f.write(f"| {rec['ts']} | {card} | {agent} | {result or kind} | {secs:.0f}s |\n")
-        self.say("pipeline", f"{time.strftime('%H:%M:%S')} [{card}] {agent}: {result or kind}" + (f" ({secs:.0f}s)" if secs else ""))
+        self.say("pipeline", f"{time.strftime('%H:%M:%S')}  {card.split('-')[0]:<4} {agent:<12} {result or kind}" + (f"  ({secs:.0f}s)" if secs >= 1 else ""))
 
     def artifact(self, card, name, text):
         d = self.dir / card

@@ -24,7 +24,7 @@ def test_intro_assume_yes_writes_roles_and_prints_board(project, capsys):
 
 
 def test_intro_interactive_picks(project):
-    answers = iter(["2", "", "", "1", "3"])        # planner=opus, builder/retro default, qa=claude/sonnet, cross=claude/haiku
+    answers = iter(["", "2", "", "", "1", "3"])    # splitter default, planner=opus, builder/retro default, qa=claude/sonnet, cross=claude/haiku
     raw = intro.run_intro(project, ask=lambda _: next(answers), out=lambda *_: None, ais=AIS)
     assert raw["roles"]["planner"]["model"] == "opus"
     assert raw["reviewers"][1] == {"name": "cross", "kind": "claude", "model": "haiku", "required": True, "agent": "qa"}
@@ -38,7 +38,7 @@ def test_intro_requires_claude(project):
 def test_render_idle_and_running(project):
     add_card(project)
     idle = view.render(project, 115, 36, color=False)
-    for word in ("CARD", "PLAN", "BUILD", "GUARD", "CI", "REVIEW", "MERGE", "BACKLOG (1)", "001-thing"):
+    for word in ("SPLIT", "PLAN", "BUILD", "CHECKS", "REVIEW", "MERGE", "TO DO (1)", "001-thing"):
         assert word in idle
     root = project / ".orchestrator"
     run = root / "runs" / "r1"
@@ -48,7 +48,7 @@ def test_render_idle_and_running(project):
           {"ts": "2026-01-01 10:00:09", "kind": "review", "card": "001-thing", "agent": "qa", "result": "APPROVED"}]
     (run / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ev))
     live = view.render(project, 115, 36, color=False)
-    assert "RUNNING" in live and "attempt: 2/3" in live and "qa OK" in live
+    assert "RUNNING" in live and "try 2 of 3" in live and "qa OK" in live
     assert "MERGE" in live
     # narrow terminals still render
     assert "REVIEW" in view.render(project, 90, 30, color=False)
@@ -57,4 +57,4 @@ def test_render_idle_and_running(project):
 def test_stage_status_resets_later_stages_on_retry():
     evs = [{"kind": k, "result": r} for k, r in (("plan", "planned"), ("build", "done"), ("ci", "FAIL"), ("build", "done"))]
     st = view.stage_status(evs, cur=view.PHASE_IDX["guardrails"])
-    assert st[:3] == ["ok", "ok", "ok"] and st[3] == "running" and st[4:] == ["pending"] * 3
+    assert st[:3] == ["ok", "ok", "ok"] and st[3] == "running" and st[4:] == ["pending"] * 2

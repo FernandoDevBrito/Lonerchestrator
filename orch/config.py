@@ -9,7 +9,10 @@ DEFAULTS = {
     "card_timeout_min": 45,               # wall-clock budget per card
     "ci": "bash scripts/ci.sh",           # must exit 0 to reach review
     # model per role (planner/builder/retro run through Claude Code agents; `orch intro` sets these)
+    "split": True,                        # splitter agent breaks big cards into child cards first
+    "verbose": False,                     # True = full agent text in the live panes (artifacts always keep everything)
     "roles": {
+        "splitter": {"cli": "claude", "model": "haiku"},
         "planner": {"cli": "claude", "model": "sonnet"},
         "builder": {"cli": "claude", "model": "sonnet"},
         "retro": {"cli": "claude", "model": "sonnet"},

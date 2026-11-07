@@ -33,12 +33,17 @@ class Pipeline:
 
     def run(self, only=None):
         self.git.checkout(self.base)
-        todo = [c for c in self.board.cards("backlog") if only in (None, c.id)]
+        def pending(seen):
+            return [c for c in self.board.cards("backlog") if c.id not in seen and (only is None or c.id == only or c.id.startswith(f"{only}-"))]
+
+        seen, todo = set(), pending(set())
         if not todo:
             self.log.say("pipeline", "nothing to do (backlog empty" + (f" or card '{only}' not found)" if only else ")"))
             return 0
         self.log.event("run_start", result=f"{len(todo)} card(s), base={self.base}")
-        for card in todo:
+        while todo:
+            card = todo[0]
+            seen.add(card.id)
             try:
                 self.process(card)
             except (AuthError, RateLimitExhausted) as e:
@@ -47,6 +52,7 @@ class Pipeline:
                 self.log.event("abort", card.id, result=str(e))
                 self.log.state(card=None, phase="aborted")
                 return 1
+            todo = pending(seen)
         self.log.state(card=None, phase="idle")
         self.log.event("run_end", result="backlog processed")
         return 0
@@ -59,6 +65,8 @@ class Pipeline:
         bad = card.problems()
         if bad:
             return self._block(card, br, t0, "invalid card: " + "; ".join(bad))
+        if g["split"] and self._split(card, br, t0, agent):
+            return
         card.move("doing")
         card.set("attempts", 0)
         if self.git.has_branch(br):
@@ -118,7 +126,7 @@ class Pipeline:
             ci = subprocess.run(g["ci"], shell=True, cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
             ci_out = ci.stdout + ci.stderr
             self.log.artifact(cid, f"ci{n}.txt", ci_out)
-            self.log.say("pipeline", "\n".join("   | " + ln for ln in ci_out.splitlines()[-12:]))
+            self.log.say("pipeline", "\n".join("   | " + ln for ln in ci_out.splitlines()[-2:]))
             if ci.returncode:
                 self.log.event("ci", cid, "ci", f"attempt {n}: FAIL", time.time() - t)
                 card.log(f"attempt {n}: CI failed")
@@ -140,6 +148,34 @@ class Pipeline:
             feedback = self.log.artifact(cid, "feedback.txt", "REVIEW REJECTED. Fix these failures.\n" +
                                          "\n".join(f"## {k}\n{o}" for k, (_, o) in results.items()))
         self._block(card, br, t0, f"needs human: {g['max_attempts']} attempts exhausted")
+
+    def _split(self, card, br, t0, agent):
+        """Splitter agent: big card -> child cards in backlog. Returns True when the parent card was handled here."""
+        cid, t = card.id, time.time()
+        before = {c.id for c in self.board.cards("backlog")}
+        self.log.state(card=cid, phase="split")
+        out = self.run_.claude("splitter", "splitter", model=self._m("splitter"), prompt=f"Split-or-keep decision for card {card.path.as_posix()}.")
+        self.log.artifact(cid, "split.txt", out)
+        m = marker(out)
+        kids = [c for c in self.board.cards("backlog") if c.id not in before]
+        if m == "BLOCKED":
+            self.log.event("split", cid, "splitter", "blocked: questions in card", time.time() - t)
+            self._block(card, br, t0, "vague or missing info, see Blockers / questions")
+            return True
+        if m == "SPLIT":
+            bad = [f"{k.id}: {'; '.join(k.problems())}" for k in kids if k.problems()]
+            if len(kids) < 2 or bad:
+                for k in kids:
+                    k.path.unlink()
+                self.log.event("split", cid, "splitter", "invalid split, keeping card whole", time.time() - t)
+                return False
+            card.log(f"split into {len(kids)} cards: " + ", ".join(k.id for k in kids))
+            card.move("done")
+            self.log.event("split", cid, "splitter", f"split into {len(kids)} cards", time.time() - t)
+            self.log.event("card_done", cid, "orchestrator", "split (children queued)", time.time() - t0)
+            return True
+        self.log.event("split", cid, "splitter", "single card", time.time() - t)
+        return False
 
     def _review(self, cid, review):
         card_note = f"Review input (card without plan/log, diff, CI tail): {review.as_posix()}."

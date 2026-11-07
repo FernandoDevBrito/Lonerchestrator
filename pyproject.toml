@@ -1,16 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "orch"
+name = "lonerchestrator"
 version = "0.1.0"
-description = "Local multi-agent orchestrator (Claude Code + Antigravity/Gemini) for any project"
+description = "Local multi-agent orchestrator (Claude Code + Antigravity/Gemini): board of cards -> plan -> build -> guardrails -> CI -> independent review -> merge"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []   # stdlib only
+
+[project.scripts]
+lonerchestrator = "orch.cli:main"
+
+[tool.setuptools]
+packages = ["orch"]
+
+[tool.setuptools.package-data]
+orch = ["templates/**/*"]
 
 [tool.ruff]
 line-length = 140
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

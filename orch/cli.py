@@ -18,14 +18,15 @@ from .pipeline import Pipeline
 from .tui import H, W, run_tui
 
 ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES = Path(__file__).resolve().parent / "templates"   # shipped inside the package; "dot-" prefix = hidden dir (packaging)
 GITIGNORE = ["# orchestrator runtime state", "board/*/*.md", "board/_log.md", ".orchestrator/runs/", ".orchestrator/streams/",
              ".orchestrator/state.json", ".orchestrator/ais.json", ".orchestrator/tui.size", ".orchestrator/run.out", "__pycache__/"]
 COLOR = {"pipeline": "37", "planner": "36", "builder": "33", "qa": "35", "cross": "34", "retro": "32"}
 
 
 def cmd_init(a, project):
-    for src in (ROOT / "templates").rglob("*"):
-        dst = project / src.relative_to(ROOT / "templates")
+    for src in TEMPLATES.rglob("*"):
+        dst = project.joinpath(*[".claude" if part == "dot-claude" else part for part in src.relative_to(TEMPLATES).parts])
         if src.is_dir():
             continue
         if dst.exists() and not a.force:
@@ -106,10 +107,12 @@ def cmd_live(a, project):
     if a.setup or not configured(project):
         if run_intro(project, assume_yes=not sys.stdin.isatty()) is None:
             return 1
-    orch, proj = str(ROOT / "bin" / "orch.cmd"), str(project)
+    dev = ROOT / "bin" / "orch.cmd"            # source checkout: the shim sets PYTHONPATH; installed package: python -m orch
+    launcher = [str(dev)] if dev.exists() else [sys.executable, "-m", "orch"]
+    proj = str(project)
     args = ["-C", proj, "tui"] + (["--base", a.base] if a.base else []) + (["--run"] if a.run else [])
-    # --size is the text area in cells; +0 rows because the tab bar is hidden by --suppressApplicationTitle-less single tab
-    subprocess.Popen(["wt", "--size", f"{W},{H}", "-w", "new", "new-tab", "--title", f"orch {project.name}", "-d", proj, "cmd", "/k", orch, *args])
+    # --size = text area in cells (verified: the TUI sees exactly WxH)
+    subprocess.Popen(["wt", "--size", f"{W},{H}", "-w", "new", "new-tab", "--title", f"orch {project.name}", "-d", proj, "cmd", "/k", *launcher, *args])
     return 0
 
 

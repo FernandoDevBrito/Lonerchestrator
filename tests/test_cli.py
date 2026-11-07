@@ -6,6 +6,8 @@ def test_init_new_and_dry_run(tmp_path, capsys):
     assert main(["-C", str(tmp_path), "init"]) == 0
     assert (tmp_path / ".orchestrator" / "config.json").exists()
     assert (tmp_path / "board" / "backlog" / ".gitkeep").exists()
+    assert (tmp_path / ".claude" / "agents" / "splitter.md").exists()      # dot-claude template -> .claude
+    assert not (tmp_path / "dot-claude").exists()
     gi = (tmp_path / ".gitignore").read_text()
     assert "board/*/*.md" in gi
     # idempotent: existing files are kept

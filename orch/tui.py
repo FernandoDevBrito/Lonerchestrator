@@ -98,6 +98,7 @@ class UI:
         self.cursor, self.msg = 0, ""              # AIs tab: cursor over checklist + role rows, last action message
         self.scur, self.edit_key, self.checks, self.checks_t = 0, "", [], 0.0      # Settings tab: cursor, field being edited, cached readiness
         self.mode, self.qcard, self.qs, self.ans, self.buf = None, "", [], [], ""      # answering a blocked card's questions
+        self.qopts = []                                                                  # the suggested answers of each question
 
 
 class Ctx:
@@ -323,7 +324,14 @@ def answer_view(ui, w):
     n, total = len(ui.ans) + 1, len(ui.qs)
     L = [paint("accent", f"Answering {ui.qcard.split('-')[0]}") + paint("dim", f"   question {n} of {total}"), rule(w), ""]
     L += [paint("bold", ln) for ln in wrap(ui.qs[len(ui.ans)], w)]
-    L += ["", paint("dim", "Your answer")]
+    opts = ui.qopts[len(ui.ans)] if len(ui.qopts) > len(ui.ans) else []
+    if opts:
+        L.append("")
+        for i, o in enumerate(opts, 1):
+            lines = wrap(o, w - 6)
+            L.append("  " + paint("running", str(i)) + "  " + paint("text", lines[0]))
+            L += ["     " + paint("text", ln) for ln in lines[1:]]
+    L += ["", paint("dim", f"Your answer   (press 1-{len(opts)} to pick a suggestion, or type your own)" if opts else "Your answer")]
     typed = wrap(ui.buf + "\u258c", w - 2)
     L += [(paint("info", "\u203a ") if i == 0 else "  ") + ln for i, ln in enumerate(typed)]
     if ui.ans:
@@ -339,15 +347,19 @@ def start_answer(x):
     if not c or c.path.parent.name != "blocked":
         ui.msg = "select a card in Needs you to answer its questions"
         return
-    qs = answer.questions(c)
-    if not qs:
+    parsed = answer.parse(c)
+    if not parsed:
         ui.msg = f"{c.id.split('-')[0]} has no questions to answer"
         return
-    ui.mode, ui.qcard, ui.qs, ui.ans, ui.buf, ui.msg, ui.screen = "answer", c.id, qs, [], "", "", 2
+    ui.qopts = [q.options for q in parsed]
+    ui.mode, ui.qcard, ui.qs, ui.ans, ui.buf, ui.msg, ui.screen = "answer", c.id, [q.text for q in parsed], [], "", "", 2
 
 
 def answer_key(key, ui, x):
-    """Every key while answering (q, digits and letters are text here)."""
+    """Every key while answering. With nothing typed yet, 1/2/3 pick that suggestion and move on; otherwise keys are text (q too)."""
+    opts = ui.qopts[len(ui.ans)] if len(ui.qopts) > len(ui.ans) else []
+    if not ui.buf and len(key) == 1 and key.isdigit() and 1 <= int(key) <= len(opts):
+        ui.buf, key = opts[int(key) - 1], "\r"
     if key in ("\r", "\n"):
         ui.ans.append(ui.buf.strip())
         ui.buf = ""
@@ -652,7 +664,7 @@ def frame(x):
     run = x.proc_msg or (paint("running", f"{x.spin} running") if x.cur is not None else paint("faint", "● idle"))
     tabs_line = " " + tabs + " " * max(W - vlen(tabs) - vlen(run) - 2, 1) + run + " "
     if x.ui.mode == "answer":
-        keys = " type your answer   Enter next question   Esc cancel   Backspace erase"
+        keys = " 1-3 pick a suggestion   or type your own   Enter next question   Esc cancel   Backspace erase"
     elif x.ui.mode == "edit":
         keys = " type the new value   Enter save   Esc cancel   Backspace erase"
     elif x.ui.screen == 5:

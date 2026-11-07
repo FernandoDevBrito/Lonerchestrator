@@ -23,7 +23,7 @@ attempts: 0
 <!-- planner fills: - [ ] task (criterion it serves, how it is verified) ; builder ticks them -->
 
 ## Blockers / questions
-<!-- agents fill; anything vague or missing becomes numbered questions here -->
+<!-- agents fill; anything vague or missing becomes numbered questions here, each with 3 suggested answers (a) b) c)) -->
 
 ## Answers
 <!-- the user's answers to the questions above go here (the panel does it: Planner tab, key a; or `lonerchestrator answer`) -->

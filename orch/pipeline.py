@@ -5,7 +5,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from . import guardrails, menu, term
+from . import answer, guardrails, menu, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -241,6 +241,8 @@ class Pipeline:
 
     def _block(self, card, br, t0, reason):
         card.log(f"BLOCKED: {reason}")
+        if answer.missing_options(card):
+            card.log("note: some questions have no 3 suggested answers (a/b/c): the agent ignored the format, you can still type your own")
         card.move("blocked")
         self._park(card.id, br)
         self.log.event("card_blocked", card.id, "orchestrator", f"blocked: {reason}", time.time() - t0)

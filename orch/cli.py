@@ -83,16 +83,18 @@ def cmd_answer(a, project):
         print("Blocked cards: " + (", ".join(c.id for c in blocked) or "none") + ("\nGive one id, e.g. `lonerchestrator answer 002`." if blocked else ""))
         return 1
     card = pick[0]
-    qs = answers.questions(card)
+    qs = answers.parse(card)
     if not qs:
         print(f"{card.id} has no questions to answer.")
         return 1
-    print(f"\n{card.title}  ({card.id})\nLeave an answer empty to skip that question.\n")
+    print(f"\n{card.title}  ({card.id})\nType 1-3 to pick a suggestion or write your own answer. Leave it empty to skip.\n")
     given = []
     for i, q in enumerate(qs, 1):
-        print(f"{i}/{len(qs)}  {q}")
+        print(f"{i}/{len(qs)}  {q.text}")
+        for n, o in enumerate(q.options, 1):
+            print(f"       {n}) {o}")
         try:
-            given.append(input("   > ").strip())
+            given.append(answers.pick(q, input("   > ")))
         except EOFError:
             given.append("")
     if answers.apply(card, qs, given):

@@ -15,6 +15,13 @@ If the card has an `## Answers` section, those are the USER's answers to your ea
   - `## Plan`: short approach, files to touch, tests to add.
   - `## Tasks`: a checklist of small steps (`- [ ] ...`). Each task names the acceptance criterion it serves and how it is verified (test or command). Every criterion must be covered by at least one task.
 - If the goal or any criterion is vague, untestable, or info is missing: do NOT guess. Fill `## Blockers / questions` with specific numbered questions and end your reply with the line `RESULT: BLOCKED`.
+  Write every question with exactly THREE suggested answers, the most sensible one first, so the user can answer with one key (they can still type their own):
+    ```
+    1. <specific question>
+       a) <concrete suggested answer>
+       b) <concrete suggested answer>
+       c) <concrete suggested answer>
+    ```
 - Otherwise end your reply with the line `RESULT: PLANNED`.
 - Do not change any code in this phase.
 

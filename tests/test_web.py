@@ -193,3 +193,15 @@ def test_flow_agents_ais_and_settings_tabs(server, project):
     assert call("POST", "/api/settings/set", {"key": "ci", "value": "echo ok"})[0] == 200
     assert [s for s in j(call("GET", "/api/settings"))["settings"] if s["key"] == "parallel"][0]["value"] == 3
     assert call("GET", "/app.js", token=False)[0] == 200 and call("GET", "/style.css", token=False)[0] == 200   # the page's own files
+
+
+def test_the_page_runs_only_its_own_scripts(server):
+    import http.client
+    call, _, httpd, url = server
+    port = httpd.server_address[1]
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request("GET", "/app.js", headers={"Host": f"127.0.0.1:{port}"})
+    csp = c.getresponse().getheader("Content-Security-Policy")
+    assert "script-src 'self';" in csp and "unsafe-inline'" not in csp.split("style-src")[0] and "default-src 'none'" in csp and "img-src data:" in csp
+    html = (web.STATIC / "index.html").read_text(encoding="utf-8")
+    assert "<script>" not in html and 'src="/app.js"' in html                      # no inline scripts: the strict script-src above is enough

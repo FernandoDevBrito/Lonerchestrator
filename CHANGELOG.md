@@ -5,6 +5,7 @@
 First public version.
 
 - Usage for every AI: tokens read from what each CLI prints (configurable `usage`/`strip_after` per provider), an estimate marked `~` when it prints none, rolling 5h/day/week windows, your own `budgets` (tokens, calls or USD per window, with bars and reset time) and a `price` per provider for estimated cost.
+- Web page redesign: one accent, tinted shadows, sentence-case labels, focus rings, dimmed backdrop behind the card drawer, skeleton first load, composed empty states, staggered tab entry, no horizontal overflow on phones. Fixed: panels no longer move by themselves (animations only on kanban cards), what you type in a field survives refreshes, buttons read the fields on screen, dropped cards land at once and stay. Stricter content security policy (no inline scripts).
 - Web page: smoother updates (elements are patched in place, moves and new cards are animated, tab changes fade), cards land instantly when dropped.
 
 - `lonerchestrator web`: the whole terminal panel in the browser (local only, token + Host/Origin checks, no dependencies): Board with drag and drop (move, re-queue, reorder by priority), Flow, Planner with answers, live Agents output, AIs with account limits and usage, Settings with readiness. New requests in plain words are understood by the `suggester` AI into a card draft (rule-based fallback).

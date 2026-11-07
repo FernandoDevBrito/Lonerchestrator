@@ -4,16 +4,21 @@ const TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"];
 const COLS = [["backlog", "Backlog"], ["doing", "In progress"], ["review", "Review"], ["blocked", "Needs you"], ["done", "Done"]];
 const $ = id => document.getElementById(id);
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-let tab = "Board", shown = null, open = null, plannerId = null, flowCard = null, picked = {}, dragging = null, busy = false;
+let tab = "Board", shown = null, open = null, plannerId = null, flowCard = null, picked = {}, dragging = null, busy = false, again = false, dropped = false;
 
 // Every piece of text from the server is added as a text node, never parsed as markup.
 // Handlers are properties (onclick = ...) so morph() can copy the newest closure onto an element that stays in the page.
+// Handlers go through on(): DOM event properties live on the prototype, so morph() could not see them to copy the newest closure.
+const on = (el, k, fn) => { (el._on = el._on || {})[k] = fn; el[k] = fn; return el; };
 function h(tag, props, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
-    if (k === "class") e.className = v; else if (k === "key") e.dataset.k = v; else e[k] = v;
+    if (k === "class") e.className = v; else if (k === "key") e.dataset.k = v;
+    else if (k === "role") e.setAttribute("role", v); else if (k.startsWith("aria")) e.setAttribute("aria-" + k.slice(4).toLowerCase(), v);
+    else if (k.startsWith("on")) on(e, k, v); else e[k] = v;
   }
   for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) && e.type !== "checkbox") e._srv = e.value;   // what the server last said: morph() leaves the user's edits alone until it changes
   return e;
 }
 async function api(path, body) {
@@ -31,7 +36,8 @@ const fail = e => { toast(e.message || String(e)); refresh(true); };
 const act = (path, body, after) => api(path, body).then(r => { if (r.msg) toast(r.msg); (after || (() => refresh(true)))(r); }, fail);
 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(Math.round(n));
 const eta = s => { s = Math.max(0, Math.round(s)); const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? d + "d " + hh + "h" : hh ? hh + "h " + m + "m" : m + "m"; };
-const bar = (f, cls) => h("div", {class: "bar " + (cls || "")}, h("i", {style: "width:" + Math.round(Math.min(Math.max(f, 0), 1) * 100) + "%"}));
+const bar = (f, cls) => h("div", {class: "bar " + (cls || ""), role: "progressbar", ariaValueNow: String(Math.round(Math.min(Math.max(f, 0), 1) * 100))},
+  h("i", {style: "transform:scaleX(" + Math.min(Math.max(f, 0), 1).toFixed(3) + ")"}));
 const level = f => f >= .85 ? "bad" : f >= .6 ? "warn" : "";
 const list = (items, done) => items.length ? h("ul", {}, items.map(i => h("li", {}, (done ? (i.done ? "☑ " : "☐ ") : "") + (done ? i.text : i)))) : h("p", {class: "ev"}, "—");
 
@@ -42,10 +48,14 @@ const sameKind = (a, b) => a.nodeType === b.nodeType && a.nodeName === b.nodeNam
 function patchEl(a, b) {
   for (const at of [...a.attributes]) if (!b.hasAttribute(at.name)) a.removeAttribute(at.name);
   for (const at of b.attributes) if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value);
-  for (const k of Object.keys(b)) if (k.startsWith("on")) a[k] = b[k];
-  for (const k of ["checked", "disabled", "draggable", "selected"]) if (k in b && a[k] !== b[k]) a[k] = b[k];
-  if (a.nodeName === "TEXTAREA" || a.nodeName === "INPUT") { if (a !== document.activeElement && "value" in b && a.value !== b.value) a.value = b.value; }
+  const bo = b._on || {}, ao = a._on || (a._on = {});
+  for (const k of Object.keys(bo)) { a[k] = bo[k]; ao[k] = bo[k]; }
+  for (const k of Object.keys(ao)) if (!(k in bo)) { a[k] = null; delete ao[k]; }
+  for (const k of ["checked", "disabled", "draggable"]) if (k in b && a[k] !== b[k]) a[k] = b[k];
   morphKids(a, b);
+  if (b._srv !== undefined) {                                       // text boxes and dropdowns: the server's value wins only when it changed
+    if (a._srv !== b._srv) { if (a !== document.activeElement || a.nodeName === "SELECT") a.value = b._srv; a._srv = b._srv; }
+  }
 }
 function morphKids(a, b) {
   const nk = [...b.childNodes], old = [...a.childNodes], byKey = new Map(), used = new Set();
@@ -63,12 +73,14 @@ function morphKids(a, b) {
   for (const o of [...a.childNodes]) if (!used.has(o)) a.removeChild(o);
 }
 function morphInto(host, kids, animate) {
-  const before = new Map();
-  host.querySelectorAll("[data-k]").forEach(e => before.set(e.dataset.k, e.getBoundingClientRect()));
-  const tmp = h("div", {}, kids);
-  morphKids(host, tmp);
-  if (calm || !animate) return;
-  host.querySelectorAll("[data-k]").forEach(e => {
+  const before = new Map(), flip = animate && !calm;
+  if (flip) {                                                       // measure the cards at rest: an animation in flight would give a false position
+    host.getAnimations({subtree: true}).forEach(a => a.finish());
+    host.querySelectorAll(".card[data-k]").forEach(e => before.set(e.dataset.k, e.getBoundingClientRect()));
+  }
+  morphKids(host, h("div", {}, kids));
+  if (!flip) return;
+  host.querySelectorAll(".card[data-k]").forEach(e => {
     const p = before.get(e.dataset.k), n = e.getBoundingClientRect();
     if (p) {
       const dx = p.left - n.left, dy = p.top - n.top;
@@ -76,7 +88,12 @@ function morphInto(host, kids, animate) {
     } else if (before.size) e.animate([{opacity: 0, transform: "translateY(10px) scale(.97)"}, {opacity: 1, transform: "none"}], {duration: 240, easing: "ease-out"});
   });
 }
-function enter(el) { if (!calm) el.animate([{opacity: 0, transform: "translateY(8px)"}, {opacity: 1, transform: "none"}], {duration: 200, easing: "ease-out"}); }
+// Staggered entry when the tab changes: the panels cascade in, one after the other.
+function enter(el) {
+  if (calm) return;
+  const parts = [...(el.children.length > 1 || !el.firstElementChild ? el.children : el.firstElementChild.children)];
+  (parts.length > 1 ? parts : [el]).forEach((c, i) => c.animate([{opacity: 0, transform: "translateY(10px)"}, {opacity: 1, transform: "none"}], {duration: 320, delay: Math.min(i, 8) * 45, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards"}));
+}
 
 // ---------------------------------------------------------------- header + tabs
 function renderHead(s) {
@@ -91,7 +108,7 @@ function renderHead(s) {
   if (s.problems.length) pr.textContent = "Before it can run: " + s.problems.join(" · ");
 }
 function renderTabs() {
-  morphInto($("tabs"), TABS.map((t, i) => h("button", {key: t, class: t === tab ? "on" : "", onclick: () => { tab = t; renderTabs(); refresh(true); }}, (i + 1) + " " + t)));
+  morphInto($("tabs"), TABS.map((t, i) => h("button", {key: t, role: "tab", ariaSelected: String(t === tab), class: t === tab ? "on" : "", onclick: () => { tab = t; renderTabs(); refresh(true); }}, h("kbd", {}, String(i + 1)), t)));
 }
 
 // ---------------------------------------------------------------- card detail (drawer on the board, inline in the Planner tab)
@@ -124,11 +141,13 @@ async function detail(id) {
 async function showDrawer(id) {
   const d = $("drawer"), body = await detail(id);
   if (open !== id) return;
-  morphInto(d, [h("button", {key: "x", onclick: closeDrawer}, "Close"), body], false);
+  morphInto(d, [h("button", {key: "x", class: "quiet", onclick: closeDrawer}, "← Back to the board"), body], false);
   d.classList.add("open");
+  $("scrim").classList.add("on");
 }
 function openCard(id) { if (open !== id) picked = {}; open = id; $("drawer").scrollTop = 0; showDrawer(id).catch(fail); }
-function closeDrawer() { open = null; $("drawer").classList.remove("open"); }
+function closeDrawer() { open = null; $("drawer").classList.remove("open"); $("scrim").classList.remove("on"); }
+$("scrim").onclick = closeDrawer;
 
 // ---------------------------------------------------------------- Board with drag and drop
 function cardEl(c) {
@@ -142,11 +161,12 @@ function cardEl(c) {
     h("div", {class: "t"}, c.title), h("div", {class: "m"}, meta));
   if (c.tasks) el.append(bar(c.done / c.tasks));
   el.dataset.id = c.id;
-  el.ondragstart = ev => {
-    dragging = {id: c.id, from: c.col, moves: c.moves}; ev.dataTransfer.setData("text/plain", c.id); ev.dataTransfer.effectAllowed = "move";
-    setTimeout(() => { el.classList.add("dragging"); document.querySelectorAll(".col").forEach(x => x.classList.add(dropOk(x.dataset.col) ? "drop-ok" : "drop-no")); }, 0);
-  };
-  el.ondragend = () => { dragging = null; document.querySelectorAll(".col,.card").forEach(x => x.classList.remove("drop-ok", "drop-no", "over", "dragging", "ins")); refresh(true); };
+  on(el, "ondragstart", ev => {
+    const me = ev.currentTarget;                                      // never the captured `el`: after morph() the live element is another one
+    dragging = {id: c.id, from: c.col, moves: c.moves}; dropped = false; ev.dataTransfer.setData("text/plain", c.id); ev.dataTransfer.effectAllowed = "move";
+    setTimeout(() => { me.classList.add("dragging"); document.querySelectorAll(".col").forEach(x => x.classList.add(dropOk(x.dataset.col) ? "drop-ok" : "drop-no")); }, 0);
+  });
+  on(el, "ondragend", () => { dragging = null; document.querySelectorAll(".col,.card").forEach(x => x.classList.remove("drop-ok", "drop-no", "over", "dragging", "ins")); if (!dropped) refresh(); });   // after a drop the server answer refreshes
   return el;
 }
 const dropOk = to => dragging && (dragging.moves.includes(to) || (to === "backlog" && dragging.from === "backlog"));
@@ -157,28 +177,31 @@ function dropIndex(colNode, y) {
 }
 function colEl(k, label, cards) {
   const el = h("section", {key: k, class: "col"}, h("h2", {key: "h"}, label, h("span", {}, cards.length)),
-    cards.length ? cards.map(c => cardEl({...c, col: k})) : h("div", {key: "empty", class: "empty"}, k === "backlog" ? "Nothing queued: add a request, or drop a card here" : "—"));
+    cards.length ? cards.map(c => cardEl({...c, col: k})) : h("div", {key: "empty", class: "empty"}, k === "backlog" ? [h("b", {}, "Nothing queued"), "Use New request, or drop a card here"]
+      : k === "blocked" ? [h("b", {}, "Nothing needs you"), "Questions from the planner show up here"] : k === "doing" ? [h("b", {}, "Idle"), "Press Run to work the backlog"] : [h("b", {}, "No finished cards yet")]));
   el.dataset.col = k;
-  el.ondragover = ev => {
+  on(el, "ondragover", ev => {
     if (!dropOk(k)) return;
-    ev.preventDefault(); el.classList.add("over");
-    if (k === "backlog") { const {cards: cs, i} = dropIndex(el, ev.clientY); cs.forEach(x => x.classList.remove("ins")); if (cs[i]) cs[i].classList.add("ins"); }
-  };
-  el.ondragleave = ev => { if (!el.contains(ev.relatedTarget)) el.classList.remove("over"); };
-  el.ondrop = ev => {
+    const col = ev.currentTarget;
+    ev.preventDefault(); col.classList.add("over");
+    if (k === "backlog") { const {cards: cs, i} = dropIndex(col, ev.clientY); cs.forEach(x => x.classList.remove("ins")); if (cs[i]) cs[i].classList.add("ins"); }
+  });
+  on(el, "ondragleave", ev => { if (!ev.currentTarget.contains(ev.relatedTarget)) ev.currentTarget.classList.remove("over"); });
+  on(el, "ondrop", ev => {
     ev.preventDefault();
-    const d = dragging; if (!d || !dropOk(k)) return;
-    const node = document.querySelector('.card[data-id="' + CSS.escape(d.id) + '"]');
+    const col = ev.currentTarget, d = dragging; if (!d || !dropOk(k)) return;
+    dropped = true;
+    const node = [...document.querySelectorAll(".card")].find(n => n.dataset.id === d.id);
     if (k === d.from) {                                              // reorder inside the backlog (priority)
-      const {cards: cs, i} = dropIndex(el, ev.clientY);
+      const {cards: cs, i} = dropIndex(col, ev.clientY);
       const ids = cs.map(x => x.dataset.id); ids.splice(i, 0, d.id);
-      if (node) el.insertBefore(node, cs[i] || null);                // the card lands at once; the server confirms
+      if (node) col.insertBefore(node, cs[i] || null);                // the card lands at once; the server confirms
       act("/api/reorder", {ids}, () => { toast("Priority updated"); refresh(true); });
     } else {
-      if (node) { el.querySelector(".empty")?.remove(); el.append(node); }
+      if (node) { col.querySelector(".empty")?.remove(); col.append(node); }
       act("/api/move", {id: d.id, to: k}, r => { if (r.unanswered) toast("Moved to the backlog, but its questions are still unanswered"); refresh(true); });
     }
-  };
+  });
   return el;
 }
 function renderBoard(s) {
@@ -224,12 +247,12 @@ function usageTable(a, ai) {
   const models = Object.keys(a.all_use[ai] || {});
   if (!models.length) return h("div", {class: "ev"}, "no calls yet");
   const money = models.some(m => (a.all_use[ai][m].cost || 0) > 0);
-  return h("table", {class: "tbl"}, h("tr", {}, ["model", "calls", "this run", "5h", "day", "week", "all", ...(money ? ["cost"] : [])].map(t => h("th", {}, t))),
+  return h("div", {class: "scroll"}, h("table", {class: "tbl"}, h("tr", {}, ["model", "calls", "this run", "5h", "day", "week", "all", ...(money ? ["cost"] : [])].map(t => h("th", {}, t))),
     models.map(m => {
       const all = a.all_use[ai][m], run = (a.run_use[ai] || {})[m], w = ((a.windows[ai] || {})[m]) || {};
       const tok = v => v ? (v.est ? "~" : "") + fmt(v.in + v.out) : "·";
       return h("tr", {key: m}, [m, all.calls, tok(run), tok(w["5h"]), tok(w.day), tok(w.week), tok(all), ...(money ? ["$" + all.cost.toFixed(2)] : [])].map(v => h("td", {}, v)));
-    }));
+    })));
 }
 function budgetBlock(a, ai) {
   const mine = a.budgets.filter(b => b.key.split("/")[0] === ai);
@@ -240,7 +263,10 @@ function budgetBlock(a, ai) {
     h("span", {class: "ev"}, (b.unit === "cost" ? "$" + b.used.toFixed(2) + " of $" + b.limit : fmt(b.used) + " of " + fmt(b.limit)) + " per " + b.per + (b.est ? " (estimated)" : "") + (b.used ? " · oldest call leaves in " + eta(b.resets_in) : "")),
     h("button", {title: "remove this limit", onclick: () => act("/api/budget", {key: b.key, unit: b.unit, per: b.per, limit: 0})}, "×")), bar(b.frac, level(b.frac))));
   return h("div", {key: "bud-" + ai}, rows, h("div", {class: "row"}, h("span", {class: "ev"}, "My limit:"), unit, lim, per,
-    h("button", {onclick: () => act("/api/budget", {key: ai, unit: unit.value, per: per.value, limit: lim.value}, () => { lim.value = ""; refresh(true); })}, "Set")));
+    h("button", {onclick: ev => {                                    // read the fields on the page (the ones built above are replaced on every refresh)
+      const row = ev.currentTarget.parentElement, [u, p] = row.querySelectorAll("select"), l = row.querySelector("input");
+      act("/api/budget", {key: ai, unit: u.value, per: p.value, limit: l.value}, () => { l.value = ""; refresh(true); });
+    }}, "Set")));
 }
 async function renderAIs() {
   const a = await api("/api/ais"), now = Date.now() / 1000;
@@ -283,7 +309,7 @@ async function renderSettings() {
     if (x.kind === "bool") input = h("input", {type: "checkbox", checked: x.value, onchange: ev => save(ev.target.checked)});
     else if (x.kind === "text") {
       const t = h("input", {type: "text", value: x.value, maxLength: 300});
-      input = h("div", {class: "row", style: "margin:0"}, t, h("button", {onclick: () => save(t.value)}, "Save & approve"));
+      input = h("div", {class: "row", style: "margin:0"}, t, h("button", {onclick: ev => save(ev.currentTarget.parentElement.querySelector("input").value)}, "Save & approve"));
     } else input = h("select", {style: "max-width:220px", onchange: ev => save(x.kind === "choice" ? Number(ev.target.value) : ev.target.value)},
       x.options.map(o => h("option", {value: o, selected: o === x.value, key: o}, o + (x.unit || ""))));
     return h("div", {class: "set", key: x.key}, h("div", {class: "row", style: "margin:0;justify-content:space-between"}, h("b", {}, x.label), input), h("div", {class: "ev"}, x.help));
@@ -293,7 +319,8 @@ async function renderSettings() {
 
 // ---------------------------------------------------------------- refresh loop
 async function refresh() {
-  if (dragging || busy) return;
+  if (dragging) return;
+  if (busy) { again = true; return; }                              // asked while one is running: run once more right after, so no change is lost
   busy = true;
   const t = tab;                                                   // the tab this refresh is for: the user may switch while it waits for the server
   try {
@@ -307,7 +334,7 @@ async function refresh() {
     shown = t;
     logs.forEach(([id, atEnd]) => { const p = $(id); if (p && atEnd) p.scrollTop = p.scrollHeight; });
     if (open) await showDrawer(open);
-  } catch (e) { $("runtxt").textContent = "offline"; } finally { busy = false; if (t !== tab) refresh(); }
+  } catch (e) { $("runtxt").textContent = "offline: is lonerchestrator web still running?"; $("dot").className = "dot"; } finally { busy = false; if (again || t !== tab) { again = false; refresh(); } }
 }
 
 const nb = $("newbox");
@@ -328,4 +355,6 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeDrawer();
   else if (/^[1-6]$/.test(e.key) && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) && !nb.open) { tab = TABS[+e.key - 1]; renderTabs(); refresh(); }
 });
+$("view").replaceChildren(h("div", {class: "grid board"}, [0, 1, 2, 3].map(i => h("div", {class: "col"}, h("div", {class: "sk", style: "height:14px;width:40%;margin:4px 4px 14px"}),
+  h("div", {class: "sk card"}), i < 2 ? h("div", {class: "sk card", style: "margin-top:10px"}) : null))));
 renderTabs(); refresh(); setInterval(refresh, 1500);

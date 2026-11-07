@@ -87,6 +87,12 @@ def cmd_answer(a, project):
     if not qs:
         print(f"{card.id} has no questions to answer.")
         return 1
+    if answers.missing_options(card):
+        print("\nThese questions came without suggested answers: asking Claude for 3 per question (a few seconds)...")
+        if answers.add_suggestions(card):
+            qs = answers.parse(card)
+        else:
+            print("(could not get suggestions: you can still write your own answers)")
     print(f"\n{card.title}  ({card.id})\nType 1-3 to pick a suggestion or write your own answer. Leave it empty to skip.\n")
     given = []
     for i, q in enumerate(qs, 1):

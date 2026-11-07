@@ -70,6 +70,14 @@ def log(project):
 
 
 @pytest.fixture(autouse=True)
+def never_call_claude(monkeypatch):
+    """No test may reach the real Claude (quota, time): suggestions come back empty unless a test installs its own fake. Background work runs inline."""
+    from orch import suggest, tui
+    monkeypatch.setattr(suggest, "ask_claude", lambda *a, **k: None)
+    monkeypatch.setattr(tui, "_bg", lambda fn: fn())
+
+
+@pytest.fixture(autouse=True)
 def isolated_home(tmp_path_factory, monkeypatch):
     """Account-level files (limits.json) must never touch the real home directory during tests."""
     monkeypatch.setenv("LONERCHESTRATOR_HOME", str(tmp_path_factory.mktemp("lc_home")))

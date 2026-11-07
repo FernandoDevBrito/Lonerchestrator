@@ -99,6 +99,7 @@ class UI:
         self.scur, self.edit_key, self.checks, self.checks_t = 0, "", [], 0.0      # Settings tab: cursor, field being edited, cached readiness
         self.mode, self.qcard, self.qs, self.ans, self.buf = None, "", [], [], ""      # answering a blocked card's questions
         self.qopts = []                                                                  # the suggested answers of each question
+        self.suggesting = False                                                          # fetching suggestions for questions that came without
 
 
 class Ctx:
@@ -331,6 +332,8 @@ def answer_view(ui, w):
             lines = wrap(o, w - 6)
             L.append("  " + paint("running", str(i)) + "  " + paint("text", lines[0]))
             L += ["     " + paint("text", ln) for ln in lines[1:]]
+    if ui.suggesting and not opts:
+        L += ["", paint("running", "\u2807 asking Claude for 3 suggested answers (a few seconds)... you can already type your own")]
     L += ["", paint("dim", f"Your answer   (press 1-{len(opts)} to pick a suggestion, or type your own)" if opts else "Your answer")]
     typed = wrap(ui.buf + "\u258c", w - 2)
     L += [(paint("info", "\u203a ") if i == 0 else "  ") + ln for i, ln in enumerate(typed)]
@@ -339,6 +342,24 @@ def answer_view(ui, w):
         L += [paint("ok", "\u2713 ") + paint("dim", f"{i} ") + paint("text", clip(a or "(skipped)", w - 6)) for i, a in enumerate(ui.ans, 1)]
     L += ["", paint("dim", "Enter next question  \u00b7  Esc cancel  \u00b7  leave empty to skip")]
     return L
+
+
+def _bg(fn):
+    """Run fn without blocking the panel (tests replace this to run it at once)."""
+    import threading
+    threading.Thread(target=fn, daemon=True).start()
+
+
+def _fill_suggestions(ui, card):
+    """Background job. Must never raise: it runs while the user answers, and the card may be answered and moved before it finishes."""
+    try:
+        answer.add_suggestions(card)
+        if ui.mode == "answer" and ui.qcard == card.id:
+            ui.qopts = [q.options for q in answer.parse(card)]
+    except Exception:           # noqa: BLE001  (card moved/removed meanwhile, Claude unreachable, odd reply): the user can still type
+        pass
+    finally:
+        ui.suggesting = False
 
 
 def start_answer(x):
@@ -353,6 +374,9 @@ def start_answer(x):
         return
     ui.qopts = [q.options for q in parsed]
     ui.mode, ui.qcard, ui.qs, ui.ans, ui.buf, ui.msg, ui.screen = "answer", c.id, [q.text for q in parsed], [], "", "", 2
+    if answer.missing_options(c):                        # an older card, or an agent that forgot: ask Claude for the 3 suggestions now
+        ui.suggesting = True
+        _bg(lambda: _fill_suggestions(ui, c))
 
 
 def answer_key(key, ui, x):

@@ -48,6 +48,48 @@ def missing_options(card):
     return bool(qs) and any(len(q.options) < 3 for q in qs)
 
 
+def render(qs):
+    """The questions as they are written in the card: `N. question` followed by `a) b) c)` lines."""
+    out = []
+    for n, q in enumerate(qs, 1):
+        out.append(f"{n}. {q.text}")
+        out += [f"   {chr(97 + k)}) {o}" for k, o in enumerate(q.options)]
+    return "\n".join(out)
+
+
+def suggestion_prompt(card, need):
+    answers = card.section("Answers")
+    qs = "\n".join(f"{n}. {q.text}" for n, q in enumerate(need, 1))
+    return (
+        "You help a user answer questions that an AI coding agent asked about a software task.\n"
+        f"Task: {card.title}\nGoal: {card.section('Goal')}\n"
+        + (f"The user already answered earlier:\n{answers}\n" if answers else "")
+        + "\nFor each numbered question below, propose exactly THREE short, concrete and different answers the user could pick, the most sensible first. "
+        "Never invent facts about the user's files, data or environment: when a fact is needed, offer choices such as "
+        "\"create a small sample for me\", \"I will provide it\" or \"skip this part for now\".\n"
+        f"Reply with ONLY a JSON array of {len(need)} arrays, one per question in order, each holding three strings. No prose, no markdown.\n\n"
+        f"Questions:\n{qs}")
+
+
+def add_suggestions(card, ask=None):
+    """Give every question that lacks three suggested answers its suggestions (one small Claude call for all of them) and save them
+    in the card. Returns True when the card was updated, False when nothing was needed or no usable reply came back."""
+    qs = parse(card)
+    need = [i for i, q in enumerate(qs) if len(q.options) < 3]
+    if not need:
+        return False
+    if ask is None:
+        from .suggest import ask_claude as ask
+    from .suggest import parse_reply
+    got = parse_reply(ask(suggestion_prompt(card, [qs[i] for i in need])), len(need))
+    if not got:
+        return False
+    for i, opts in zip(need, got, strict=True):
+        qs[i].options = opts
+    card.set_section("Blockers", render(qs))
+    return True
+
+
 def pick(q, typed):
     """What was typed for a question: '1'..'3' choose that suggested answer, anything else is the user's own words."""
     typed = typed.strip()

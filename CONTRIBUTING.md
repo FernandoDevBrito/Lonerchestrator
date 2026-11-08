@@ -38,3 +38,21 @@ CI runs both on Linux, macOS and Windows with Python 3.10 and 3.12.
 ## Reporting bugs
 
 Use the bug template. Include your OS, Python version, `lonerchestrator --help` output, and the relevant lines of `board/_log.md` / `.orchestrator/runs/<run>/events.jsonl` (remove anything private first).
+
+## How the code is organised (where to add things)
+
+Small, explicit extension points instead of long `if` chains. Each one has a test that shows how to use it.
+
+| To add... | Do this | Where |
+|---|---|---|
+| a step in a card's life (a security scan, a second CI) | write a class with `run(p, job)` returning `PASS`, `retry(text)`, `block(why)` or `APPROVED`, put it in `Pipeline.stages` | `orch/stages.py`, `tests/test_stages.py` |
+| an AI that only needs a command line | a `providers` entry in the config, no code | `orch/providers.py` |
+| an AI with its own integration | a subclass of `ai.AI` (`call`, `review`, `ask`) | `orch/ai.py` |
+| a "Ready to run?" check | a function `check_x(env)` returning `(status, title, hint)` tuples, added to `CHECKS` | `orch/checks.py` |
+| a language/tool the project study recognises | a function `detect_x(found)`, added to `DETECTORS` | `orch/scout.py` |
+| a web API endpoint | a method decorated `@route("POST", "/api/x", takes="body")` | `orch/web.py`, `web_ais.py`, `web_settings.py` |
+| a command | a `cmd_x` function, an entry in `COMMANDS` and a sub-parser | `orch/cli.py` |
+
+Where a card's work lives (the project itself, or a git worktree per card when cards run in parallel) is a *workspace*: `InPlace` in `pipeline.py` and `Hub` in `parallel.py` implement the same `merge`, `park`, `retro` and `lock`. The AI's name and how to get it ready (`name`, `url`, `install_hint`, `login_hint`) live in its preset, so no screen repeats them.
+
+Before a refactor, capture what the code does now (a test, or a before/after comparison on real projects) and keep it green: that is how these were done, one commit each.

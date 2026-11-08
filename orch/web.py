@@ -10,26 +10,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import answer, checks, config, intake, menu, providers, settings, usage
+from . import answer, checks, config, intake, menu
 from .board import STATES, Board, Card, create_card
 from .events import STREAMS
 from .safe import clean
 from .view import NOW, PHASE_IDX, STAGES, _json, load_events, reviewer_status, stage_status
+from .web_ais import AisApi
+from .web_settings import SettingsApi
+from .webcore import ANSI, ID, Bad, find_route, route
 
 STATIC = Path(__file__).parent / "static"
-ID = re.compile(r"^[\w.-]{1,80}$")
-ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")           # colour codes in an agent's output: shown as plain text on the page
 MAX_BODY = 64 * 1024
 ASSETS = {"/app.js": "text/javascript", "/style.css": "text/css"}
 
 
-class Bad(Exception):
-    def __init__(self, msg, code=400):
-        super().__init__(msg)
-        self.code = code
-
-
-class App:
+class App(AisApi, SettingsApi):
     """The API, independent of HTTP so it is easy to test. Every method returns JSON-able data or raises Bad."""
 
     def __init__(self, project, base, runner):
@@ -52,6 +47,7 @@ class App:
                 "tasks": len(tasks), "done": sum(t != " " for t in tasks), "questions": len(answer.parse(c)) if c.path.parent.name == "blocked" else 0,
                 "phase": active.get(c.id, ""), "moves": self.moves(c, active)}
 
+    @route("GET", "/api/state")
     def state(self):
         active, _ = self.active()
         cfg = config.load(self.project)
@@ -62,6 +58,7 @@ class App:
                 "roles": {r: menu.assigned(cfg, r) for r in menu.SLOTS},
                 "pills": [{"id": k, "ok": bool(v.get("logged_in"))} for k, v in ais.items() if v.get("installed") or k in ("claude", "agy")], "parallel": cfg.get("parallel", 1), "builders": cfg.get("builders", 1), "problems": bad}
 
+    @route("GET", "/api/card/", takes="tail")
     def card(self, cid):
         c = self.find(cid)
         qs = answer.parse(c) if c.path.parent.name == "blocked" else []
@@ -86,6 +83,7 @@ class App:
             return []
         return {"backlog": ["blocked"], "blocked": ["backlog"], "done": ["backlog"], "doing": ["backlog", "blocked"], "review": ["backlog", "blocked"]}[s]
 
+    @route("POST", "/api/move", takes="body")
     def move(self, body):
         c, to = self.find(body.get("id")), body.get("to")
         active, _ = self.active()
@@ -98,6 +96,7 @@ class App:
         c.move(to)
         return {"id": c.id, "to": to, "unanswered": bool(to == "backlog" and answer.parse(c))}
 
+    @route("POST", "/api/reorder", takes="body")
     def reorder(self, body):
         ids = body.get("ids")
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
@@ -110,6 +109,7 @@ class App:
         return {"ok": True}
 
     # ---------- the other tabs of the terminal panel
+    @route("GET", "/api/flow", takes="card")
     def flow(self, cid=None):
         active, st = self.active()
         _, ev = load_events(self.project)
@@ -128,6 +128,7 @@ class App:
                 "reviewers": [{"name": n, "status": s, "verdict": got.get(n, "")} for n, s in revs.items()],
                 "events": [{k: e.get(k, "") for k in ("ts", "kind", "agent", "result", "secs")} for e in evs[-40:]], "attempts": f"{phase.split()[1]}" if " " in phase else ""}
 
+    @route("GET", "/api/agents")
     def agents(self):
         active, _ = self.active()
         phases = {p.split()[0] for p in active.values() if p}
@@ -143,128 +144,8 @@ class App:
             out.append({"name": name, "live": live.get(name, False), "lines": [clean(ANSI.sub("", ln))[:400] for ln in lines if ln.strip() and not ln.startswith("--- run")][-40:]})
         return {"agents": out}
 
-    def ais(self):
-        cfg = config.load(self.project)
-        ais = _json(self.project / ".orchestrator" / "ais.json").get("ais", {})
-        avail = menu.available(self.project)
-        on = menu.enabled(self.project, avail)
-        used = {}
-        for s in menu.SLOTS:
-            used.setdefault(menu.assigned(cfg, s), []).append(s)
-        st, _ = load_events(self.project)
-        runs = sorted((self.project / ".orchestrator" / "runs").glob("*")) if (self.project / ".orchestrator" / "runs").exists() else []
-        run_id = st.get("run") or (runs[-1].name if runs else None)
-        reg = providers.registry(cfg)
-        return {"ais": [{"id": c, "name": reg.get(c, {}).get("name") or v.get("name") or c, "installed": v.get("installed", False),
-                         "logged_in": v.get("logged_in", False),
-                         "models": [{"key": menu.keyof(c, m), "model": m, "on": menu.keyof(c, m) in on, "used_by": used.get(menu.keyof(c, m), [])}
-                                    for cl, m in avail if cl == c]} for c, v in ais.items() if v.get("installed") or c in ("claude", "agy")],
-                "slots": [{"slot": s, "key": menu.assigned(cfg, s), "ok": menu.assigned(cfg, s) in on or cfg.get("use") is None, "options": menu.options(self.project, s)}
-                          for s in menu.SLOTS],
-                "same_reviewers": menu.assigned(cfg, "qa") == menu.assigned(cfg, "cross"),
-                "limits": usage.read_limits().get("claude", {}), "run_use": usage.run_totals(self.project, run_id), "all_use": usage.all_totals(self.project),
-                "windows": usage.window_totals(self.project), "budgets": usage.budget_state(cfg, self.project), "budget_cfg": cfg.get("budgets") or {},
-                "known": sorted(providers.registry(cfg)),
-                "job": self.job()}
-
-    def job(self):
-        return {"detecting": bool(getattr(self, "_detecting", False)), "probing": bool(usage.PROBE["running"]), "msg": usage.PROBE["msg"]}
-
-    def ais_toggle(self, body):
-        key = body.get("key")
-        if key not in [menu.keyof(c, m) for c, m in menu.available(self.project)]:
-            raise Bad("unknown AI model")
-        return {"msg": menu.toggle(self.project, key)}
-
-    def ais_assign(self, body):
-        slot, key = body.get("slot"), body.get("key")
-        if slot not in menu.SLOTS or key not in menu.options(self.project, slot):
-            raise Bad("that AI cannot fill that role")
-        raw, cfg = config.read_raw(self.project), config.load(self.project)
-        menu._assign(raw, cfg, slot, key)
-        config.write_raw(self.project, raw)
-        return {"msg": f"{slot} -> {key}"}
-
-    def budget_set(self, body):
-        """Your own limit for an AI (or one model): tokens, calls or USD per rolling window. A limit of 0 removes it."""
-        key, unit, per = body.get("key"), body.get("unit"), body.get("per", "day")
-        cfg = config.load(self.project)
-        if unit not in ("tokens", "calls", "cost") or per not in usage.PERIODS or not isinstance(key, str) or key.split("/")[0] not in providers.registry(cfg):
-            raise Bad("budget: pick an AI, tokens/calls/cost and a period (5h, day, week, month)")
-        try:
-            limit = float(body.get("limit", 0))
-        except (TypeError, ValueError):
-            raise Bad("the limit must be a number") from None
-        if not 0 <= limit <= 1e12:
-            raise Bad("the limit must be 0 (remove) or a positive number")
-        raw = config.read_raw(self.project)
-        b = raw.setdefault("budgets", {}).setdefault(key, {})
-        b["per"] = per
-        if limit:
-            b[unit] = int(limit) if unit != "cost" else limit
-        else:
-            b.pop(unit, None)
-        if not any(b.get(u) for u in ("tokens", "calls", "cost")):
-            raw["budgets"].pop(key, None)
-        config.write_raw(self.project, raw)
-        return {"msg": f"{key}: " + (f"{unit} limit {limit:g} per {per}" if limit else f"{unit} limit removed")}
-
-    def context_study(self):
-        """Have the AI study the repository and fill context/project.md (a few seconds, so it runs in the background)."""
-        from . import scout
-        if getattr(self, "_studying", False):
-            return {"msg": "already studying the project"}
-        if scout.filled(self.project):
-            return {"msg": "context/project.md already has content: it is never overwritten (use `lonerchestrator context --force`)"}
-        self._studying = True
-
-        def work():
-            try:
-                scout.ensure(self.project, say=lambda *_: None)
-            finally:
-                self._studying = False
-        threading.Thread(target=work, daemon=True).start()
-        return {"msg": "studying the project: context/project.md will be filled in a few seconds"}
-
-    def ais_detect(self):
-        if getattr(self, "_detecting", False):
-            return {"msg": "already detecting"}
-        from . import intro
-        self._detecting = True
-
-        def work():
-            try:
-                intro.save_ais(self.project, intro.detect(config.load(self.project)))
-            finally:
-                self._detecting = False
-        threading.Thread(target=work, daemon=True).start()
-        return {"msg": "checking which AIs are installed and logged in (a few seconds)"}
-
-    def ais_limits(self):
-        usage.probe_in_background(self.project)
-        return {"msg": "asking Claude Code for your current limits"}
-
-    def settings(self):
-        cfg = config.load(self.project)
-        out = []
-        for key, label, kind, options, unit, help_ in settings.SPEC:
-            out.append({"key": key, "label": label, "kind": kind, "unit": unit, "help": help_, "value": settings.get(cfg, key),
-                        "options": settings.branches(self.project) if kind == "branch" else options})
-        checks_ = [{"status": s, "title": t, "hint": h, "action": "context" if t.startswith("context/project.md is empty") else ""} for s, t, h in checks.readiness(self.project)]
-        ready, summary = checks.summary([(c["status"], c["title"], c["hint"]) for c in checks_])
-        return {"settings": out, "checks": checks_, "ready": ready, "summary": summary}
-
-    def settings_set(self, body):
-        key = body.get("key")
-        try:
-            if key not in settings.KEYS:
-                raise ValueError("unknown setting")
-            msg = settings.set_text(self.project, key, str(body.get("value", ""))) if settings.spec(key)[2] == "text" else settings.set_value(self.project, key, body.get("value"))
-        except ValueError as e:
-            raise Bad(str(e)) from None
-        return {"msg": msg}
-
     # ---------- writing
+    @route("POST", "/api/new", takes="body")
     def new(self, body):
         text = " ".join(str(body.get("text", "")).split())
         if len(text) < 3:
@@ -276,6 +157,7 @@ class App:
             self.runner.start()
         return {"id": path.stem, "draft": {**draft, "area": area}, "started": bool(body.get("run", True))}
 
+    @route("POST", "/api/answer", takes="body")
     def answer(self, body):
         c = self.find(body.get("id"))
         if c.path.parent.name != "blocked":
@@ -290,10 +172,12 @@ class App:
             self.runner.start()
         return {"id": c.id, "queued": True}
 
+    @route("POST", "/api/suggest", takes="body")
     def suggest(self, body):
         c = self.find(body.get("id"))
         return {"added": answer.add_suggestions(c), **{"questions": [{"text": q.text, "options": q.options} for q in answer.parse(c)]}}
 
+    @route("POST", "/api/requeue", takes="body")
     def requeue(self, body):
         c = self.find(body.get("id"))
         if c.path.parent.name != "blocked":
@@ -303,41 +187,24 @@ class App:
         c.move("backlog")
         return {"id": c.id}
 
+    @route("POST", "/api/run")
     def run(self):
         self.runner.start()
         return {"running": True}
 
+    @route("POST", "/api/stop")
     def stop(self):
         self.runner.stop()
         return {"running": False}
 
     # ---------- routing
     def dispatch(self, method, path, body, query=None):
-        query = query or {}
-        if method == "GET":
-            if path == "/api/state":
-                return self.state()
-            if path.startswith("/api/card/"):
-                return self.card(path.rsplit("/", 1)[1])
-            if path == "/api/flow":
-                return self.flow(query.get("card"))
-            simple = {"/api/agents": self.agents, "/api/ais": self.ais, "/api/settings": self.settings}
-            if path in simple:
-                return simple[path]()
-        elif method == "POST":
-            routes = {"/api/new": self.new, "/api/answer": self.answer, "/api/suggest": self.suggest, "/api/requeue": self.requeue, "/api/move": self.move,
-                      "/api/reorder": self.reorder, "/api/ais/toggle": self.ais_toggle, "/api/ais/assign": self.ais_assign, "/api/settings/set": self.settings_set, "/api/budget": self.budget_set}
-            if path == "/api/context":
-                return self.context_study()
-            if path == "/api/ais/detect":
-                return self.ais_detect()
-            if path == "/api/ais/limits":
-                return self.ais_limits()
-            if path in routes:
-                return routes[path](body)
-            if path in ("/api/run", "/api/stop"):
-                return self.run() if path == "/api/run" else self.stop()
-        raise Bad("not found", 404)
+        found = find_route(method, path)
+        if found is None:
+            raise Bad("not found", 404)
+        name, takes, tail = found
+        args = {None: (), "body": (body,), "card": ((query or {}).get("card"),), "tail": (tail,)}[takes]
+        return getattr(self, name)(*args)
 
 
 class ProcRunner:

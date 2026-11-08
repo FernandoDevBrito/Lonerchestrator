@@ -205,3 +205,16 @@ def test_the_page_runs_only_its_own_scripts(server):
     assert "script-src 'self';" in csp and "unsafe-inline'" not in csp.split("style-src")[0] and "default-src 'none'" in csp and "img-src data:" in csp
     html = (web.STATIC / "index.html").read_text(encoding="utf-8")
     assert "<script>" not in html and 'src="/app.js"' in html                      # no inline scripts: the strict script-src above is enough
+
+
+def test_the_route_table_is_the_api_surface(server):
+    from orch import webcore
+    expected = {("GET", "/api/state"), ("GET", "/api/card/"), ("GET", "/api/flow"), ("GET", "/api/agents"), ("GET", "/api/ais"), ("GET", "/api/settings"),
+                ("POST", "/api/new"), ("POST", "/api/answer"), ("POST", "/api/suggest"), ("POST", "/api/requeue"), ("POST", "/api/move"), ("POST", "/api/reorder"),
+                ("POST", "/api/ais/toggle"), ("POST", "/api/ais/assign"), ("POST", "/api/ais/detect"), ("POST", "/api/ais/limits"), ("POST", "/api/budget"),
+                ("POST", "/api/settings/set"), ("POST", "/api/context"), ("POST", "/api/run"), ("POST", "/api/stop")}
+    assert set(webcore.ROUTES) == expected
+    assert webcore.find_route("GET", "/api/card/001-x") == ("card", "tail", "001-x") and webcore.find_route("GET", "/api/card/") is None
+    assert webcore.find_route("POST", "/api/state") is None and webcore.find_route("GET", "/api/nope") is None
+    call, *_ = server
+    assert call("GET", "/api/nope")[0] == 404 and call("POST", "/api/state", {})[0] == 404

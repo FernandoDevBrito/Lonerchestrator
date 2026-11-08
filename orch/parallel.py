@@ -34,11 +34,15 @@ class Hub:
                     return False
             return mg.merge_no_ff(br, msg)
 
-    def retro(self, card, status, attempts):
+    def park(self, w, cid, br):
+        """The worktree is removed afterwards and the branch keeps the work: only commit it, never switch branches here."""
+        w.git.commit_if_dirty(f"WIP card {cid} (parked)")
+
+    def retro(self, w, card, status, attempts):
         """Runs in the main checkout, with the card in its final state on the main board."""
         main_card = self.send(card)
         with self.lock:
-            self.main._retro(main_card, status, attempts)
+            self.main.do_retro(main_card, status, attempts)
 
     def send(self, card):
         """Copy a worker's card file to the main board in the state it is in now. Returns the main card."""

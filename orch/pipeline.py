@@ -1,6 +1,5 @@
 """The loop: validate -> plan(+tasks) -> build -> guardrails -> CI -> independent review -> merge -> retro."""
 import contextlib
-import re
 import shutil
 import subprocess
 import tempfile
@@ -8,10 +7,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import ai, answer, groups, guardrails, menu, term
+from . import ai, answer, groups, menu, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
+from .stages import APPROVED, CI, Build, Guardrails, Job, Plan, Review
 
 
 class Tampered(Exception):
@@ -41,9 +41,33 @@ class _Guarded:
         return self._call(self.runner.provider, *a, **kw)
 
 
+class InPlace:
+    """Where a card's work lives and how it gets out: the project's own checkout, one card at a time (the default).
+    The other workspace is parallel.Hub: a git worktree per card, with merges and retros taken in turns. Same four methods."""
+    lock = contextlib.nullcontext()
+
+    def merge(self, w, br, msg):
+        w.git.checkout(w.base)
+        if not w.git.merge_no_ff(br, msg):
+            return False
+        w.git.delete_branch(br)   # fully merged, safe delete
+        return True
+
+    def park(self, w, cid, br):
+        """Keep work-in-progress on the card branch and return to base."""
+        w.git.commit_if_dirty(f"WIP card {cid} (parked)")
+        w.git.checkout(w.base)
+        if w.git.has_branch(br) and w.git.ahead(w.base, br) == 0:
+            w.git.delete_branch(br)
+
+    def retro(self, w, card, status, attempts):
+        w.do_retro(card, status, attempts)
+
+
 class Pipeline:
     def __init__(self, project, cfg, log, runner, base=None, hub=None):
-        self.hub = hub                      # set when this pipeline works in its own git worktree (parallel cards): see parallel.py
+        self.ws = hub or InPlace()          # the workspace: the project itself, or (parallel cards) a git worktree per card, see parallel.py
+        self.plan, self.stages = Plan(), [Build(), Guardrails(), CI(), Review()]
         self.p, self.cfg, self.log = project, cfg, log
         self.base = base or cfg["base"]
         self.git, self.board = Git(project, hooks=cfg.get("git_hooks", False)), Board(project)
@@ -123,97 +147,52 @@ class Pipeline:
         return 0
 
     # ---------- one card ----------
-    def process(self, card):
-        t0, cid, br = time.time(), card.id, f"card/{card.id}"
-        area, g = card.area, self.cfg
-        agent = g["agents"].get(area, "backend")
+    def _begin(self, card):
+        """Validate, maybe split, move to doing and get on the card branch. Returns the Job, or None when the card was already dealt with."""
+        t0, br = time.time(), f"card/{card.id}"
+        agent = self.cfg["agents"].get(card.area, "backend")
         bad = card.problems()
         if bad:
-            return self._block(card, br, t0, "invalid card: " + "; ".join(bad))
-        if g["split"] and self._split(card, br, t0, agent):
-            return
+            self._block(card, br, t0, "invalid card: " + "; ".join(bad))
+            return None
+        if self.cfg["split"] and self._split(card, br, t0, agent):
+            return None
         card.move("doing")
         card.set("attempts", 0)
         if self.git.has_branch(br):
             self.git.checkout(br)
             if not self.git.merge_base_into_current(self.base):
-                return self._block(card, br, t0, f"{br} conflicts with {self.base}")
+                self._block(card, br, t0, f"{br} conflicts with {self.base}")
+                return None
         else:
             self.git.checkout(br, create_from=self.base)
         card.log(f"started on {br} (base {self.base})")
+        return Job(card, br, t0, agent)
 
-        # PLAN (+ tasks): the planner never changes code; vague cards stop here
-        self.log.state(card=cid, phase="plan")
-        t = time.time()
-        out = self._ask("planner", agent, f"PHASE=PLAN. Card: {card.path.as_posix()}. Follow your agent instructions and CLAUDE.md.")
-        self.log.artifact(cid, "plan.txt", out)
-        m = marker(out)
-        if m == "BLOCKED":
-            self.log.event("plan", cid, agent, "blocked: questions in card", time.time() - t)
-            return self._block(card, br, t0, "vague or missing info, see Blockers / questions")
-        if m != "PLANNED" or not re.search(r"^- \[ \]", card.section("Tasks"), re.MULTILINE):
-            self.log.event("plan", cid, agent, "invalid plan", time.time() - t)
-            return self._block(card, br, t0, "planner did not produce a RESULT marker and a ## Tasks checklist")
-        self.log.event("plan", cid, agent, "planned", time.time() - t)
-
-        feedback = self.log.artifact(cid, "feedback.txt", "")
+    def process(self, card):
+        j = self._begin(card)
+        if j is None:
+            return
+        g = self.cfg
+        out = self.plan.run(self, j)
+        if out.kind == "block":
+            return self._block(card, j.br, j.t0, out.text)
+        j.feedback = self.log.artifact(j.cid, "feedback.txt", "")
         for n in range(1, g["max_attempts"] + 1):
-            if time.time() - t0 > g["card_timeout_min"] * 60:
-                return self._block(card, br, t0, f"timeout > {g['card_timeout_min']} min")
+            if time.time() - j.t0 > g["card_timeout_min"] * 60:
+                return self._block(card, j.br, j.t0, f"timeout > {g['card_timeout_min']} min")
+            j.n = n
             card.set("attempts", n)
-            # BUILD
-            self.log.state(card=cid, phase=f"build {n}/{g['max_attempts']}")
-            t = time.time()
-            out = self._team(card, agent, n, feedback) if n == 1 else None
-            if out is None:
-                out = self._ask("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {g['max_attempts']}. "
-                                       f"Card: {card.path.as_posix()}. Feedback from the previous attempt (empty on the first): {feedback.as_posix()}")
-            self.log.artifact(cid, f"build{n}.txt", out)
-            if marker(out) == "BLOCKED":
-                self.log.event("build", cid, agent, f"attempt {n}: blocked", time.time() - t)
-                return self._block(card, br, t0, "builder found missing info, see Blockers / questions")
-            self.log.event("build", cid, agent, f"attempt {n}: done", time.time() - t)
-
-            # GUARDRAILS
-            self.log.state(card=cid, phase=f"guardrails {n}")
-            self.git.add_all()
-            diff = self.git.diff_cached(self.base)
-            viol = guardrails.check_diff(g["guardrails"], self.git.changed(self.base), self.git.changed(self.base, deleted=True), diff)
-            if viol:
-                self.log.event("guardrails", cid, "guardrails", f"attempt {n}: {len(viol)} violation(s)")
-                for v in viol:
-                    self.log.say("pipeline", f"   ! {v}")
-                card.log(f"attempt {n}: guardrails: " + "; ".join(viol))
-                feedback = self.log.artifact(cid, "feedback.txt", "GUARDRAIL VIOLATIONS. Fix these:\n- " + "\n- ".join(viol))
-                continue
-
-            # CI
-            self.log.state(card=cid, phase=f"ci {n}")
-            t = time.time()
-            ci, ci_out = self._ci()
-            self.log.artifact(cid, f"ci{n}.txt", ci_out)
-            self.log.say("pipeline", "\n".join("   | " + ln for ln in ci_out.splitlines()[-2:]))
-            if ci.returncode:
-                self.log.event("ci", cid, "ci", f"attempt {n}: FAIL", time.time() - t)
-                card.log(f"attempt {n}: CI failed")
-                feedback = self.log.artifact(cid, "feedback.txt", "CI FAILED. Fix these:\n" + "\n".join(ci_out.splitlines()[-80:]))
-                continue
-            self.log.event("ci", cid, "ci", "PASS", time.time() - t)
-
-            # REVIEW: independent reviewers, in parallel
-            self.log.state(card=cid, phase=f"review {n}")
-            review = self.log.artifact(cid, f"review{n}.txt", "# CARD\n" + card.for_review() + "\n\n# DIFF\n" + diff +
-                                       "\n\n# CI OUTPUT (tail)\n" + "\n".join(ci_out.splitlines()[-60:]))
-            results = self._review(cid, review)
-            for name, (v, _) in results.items():
-                self.log.event("review", cid, name, v)
-            if all(v == "APPROVED" for v, _ in results.values()):
-                return self._approve(card, br, t0, n)
-            summary = ", ".join(f"{k}={v}" for k, (v, _) in results.items())
-            card.log(f"attempt {n} rejected ({summary})")
-            feedback = self.log.artifact(cid, "feedback.txt", "REVIEW REJECTED. Fix these failures.\n" +
-                                         "\n".join(f"## {k}\n{o}" for k, (_, o) in results.items()))
-        self._block(card, br, t0, f"needs human: {g['max_attempts']} attempts exhausted")
+            for stage in self.stages:
+                out = stage.run(self, j)
+                if out.kind == "retry":                    # this attempt failed: the text is what the builder reads next time
+                    j.feedback = self.log.artifact(j.cid, "feedback.txt", out.text)
+                    break
+                if out.kind == "block":
+                    return self._block(card, j.br, j.t0, out.text)
+                if out is APPROVED:
+                    return self._approve(card, j.br, j.t0, n)
+        self._block(card, j.br, j.t0, f"needs human: {g['max_attempts']} attempts exhausted")
 
     def _team(self, card, agent, n, feedback):
         """Several builders on one card: the plan's tasks are grouped by the files they declare, each group is built in its own throw-away
@@ -223,7 +202,7 @@ class Pipeline:
         if not parts or not hasattr(self.run_.runner, "at"):
             return None
         cid, head, made = card.id, self.git.out("rev-parse", "HEAD").strip(), []
-        lock = self.hub.lock if self.hub else contextlib.nullcontext()
+        lock = self.ws.lock
         try:
             with lock:
                 for i in range(1, len(parts) + 1):
@@ -333,13 +312,7 @@ class Pipeline:
         self._retro(card, "done", n)
 
     def _merge(self, br, msg):
-        if self.hub:                                  # parallel: the shared main checkout does the merge, one card at a time
-            return self.hub.merge(self, br, msg)
-        self.git.checkout(self.base)
-        if not self.git.merge_no_ff(br, msg):
-            return False
-        self.git.delete_branch(br)   # fully merged, safe delete
-        return True
+        return self.ws.merge(self, br, msg)
 
     def _block(self, card, br, t0, reason):
         card.log(f"BLOCKED: {reason}")
@@ -351,17 +324,13 @@ class Pipeline:
         self._retro(card, "blocked", int(card.get("attempts", "0") or 0))
 
     def _park(self, cid, br):
-        """Keep work-in-progress on the card branch and return to base."""
-        self.git.commit_if_dirty(f"WIP card {cid} (parked)")
-        if self.hub:                                  # the worktree is removed afterwards; the branch keeps the work
-            return
-        self.git.checkout(self.base)
-        if self.git.has_branch(br) and self.git.ahead(self.base, br) == 0:
-            self.git.delete_branch(br)
+        self.ws.park(self, cid, br)
 
     def _retro(self, card, status, attempts):
-        if self.hub:                                  # retro writes memory/context in the main checkout: one at a time
-            return self.hub.retro(card, status, attempts)
+        self.ws.retro(self, card, status, attempts)
+
+    def do_retro(self, card, status, attempts):
+        """The retrospective itself: runs in the project's own checkout (the workspace decides when and where)."""
         self.log.state(card=card.id, phase="retro")
         t = time.time()
         self._ask("retro", "retro", f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")

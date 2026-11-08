@@ -76,70 +76,115 @@ def lead(text):
     return " ".join(out)[:300]
 
 
+MANIFESTS = ("requirements.txt", "requirements-dev.txt", "Pipfile", "setup.py", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "Gemfile", "composer.json")
+TOOL_FILES = (("Dockerfile", "Docker"), ("docker-compose.yml", "Docker Compose"), ("tsconfig.json", "TypeScript config"), (".editorconfig", "EditorConfig"),
+              (".prettierrc", "Prettier"), ("ruff.toml", "Ruff"), ("tox.ini", "tox"), ("pytest.ini", "pytest"), (".pre-commit-config.yaml", "pre-commit"))
+
+
+class Found:
+    """What the detectors fill in. `add(kind, cmd)` keeps every command found: a mixed repo has more than one `test`."""
+
+    def __init__(self, project, files):
+        self.project, self.files = project, files
+        self.facts = {"manifests": {}, "commands": {}, "tools": [], "ci": [], "tests": [], "git": []}
+
+    def add(self, kind, cmd):
+        if cmd not in self.facts["commands"].setdefault(kind, []):
+            self.facts["commands"][kind].append(cmd)
+
+
+# Each detector looks for one ecosystem or one kind of fact and reports into Found. To support a new one, write a function and add it to DETECTORS.
+def detect_node(f):
+    pj = _json(f.project / "package.json")
+    if not pj:
+        return
+    deps = sorted({*pj.get("dependencies", {}), *pj.get("devDependencies", {})})
+    f.facts["manifests"]["package.json"] = f"name {pj.get('name', '?')}; {pj.get('description', '')}; dependencies: {', '.join(deps[:20])}"
+    runner = "pnpm" if (f.project / "pnpm-lock.yaml").exists() else "yarn" if (f.project / "yarn.lock").exists() else "npm"
+    for key in ("dev", "start", "test", "lint", "build", "format", "typecheck"):
+        if key in pj.get("scripts", {}):
+            f.add(key, f"{runner} test" if key == "test" else f"{runner} run {key}" if runner == "npm" else f"{runner} {key}")
+
+
+def detect_python(f):
+    py = _read(f.project / "pyproject.toml")
+    if not py:
+        return
+    name = re.search(r'^name\s*=\s*"([^"]+)"', py, re.MULTILINE)
+    f.facts["manifests"]["pyproject.toml"] = f"name {name.group(1) if name else '?'}; " + "; ".join(sorted(set(re.findall(r"^\[tool\.([a-z0-9_-]+)", py, re.MULTILINE)))[:8])
+    if "pytest" in py:
+        f.add("test", "python -m pytest")
+    if "[tool.ruff" in py:
+        f.add("lint", "ruff check .")
+
+
+def detect_manifests(f):
+    for name in MANIFESTS:
+        text = _read(f.project / name, 1500)
+        if text:
+            f.facts["manifests"][name] = " ".join(text.split())[:260]
+
+
+def detect_rust_go(f):
+    for marker, cmds in (("Cargo.toml", (("test", "cargo test"), ("build", "cargo build"))), ("go.mod", (("test", "go test ./..."), ("build", "go build ./...")))):
+        if (f.project / marker).exists():
+            for kind, cmd in cmds:
+                f.add(kind, cmd)
+
+
+def detect_make(f):
+    mk = _read(f.project / "Makefile")
+    if not mk:
+        return
+    targets = re.findall(r"^([a-zA-Z][\w-]*):", mk, re.MULTILINE)
+    f.facts["manifests"]["Makefile"] = "targets: " + ", ".join(targets[:14])
+    for key in ("test", "lint", "build", "dev", "run", "check"):
+        if key in targets:
+            f.add(key, f"make {key}")
+
+
+def detect_ci_script(f):
+    if (f.project / "scripts" / "ci.sh").is_file():
+        f.add("ci", "bash scripts/ci.sh (the orchestrator's CI command)")
+
+
+def detect_tooling(f):
+    f.facts["tools"] += [label for name, label in TOOL_FILES if (f.project / name).exists()]
+    f.facts["tools"] += [f"ESLint ({p.name})" for p in f.project.glob(".eslintrc*")] + (["ESLint (flat config)"] if any(f.project.glob("eslint.config.*")) else [])
+
+
+def detect_ci_workflows(f):
+    for wf in sorted((f.project / ".github" / "workflows").glob("*.y*ml"))[:3]:
+        f.facts["ci"].append(f"{wf.name}: " + "; ".join(re.findall(r"^\s*-?\s*run:\s*(.+)$", _read(wf), re.MULTILINE)[:5]))
+
+
+def detect_tests(f):
+    f.facts["tests"] = sorted({n.split("/")[0] for n in f.files if re.search(r"(^|/)(tests?|__tests__|spec)(/|$)|(_test|\.test|\.spec)\.\w+$", n)})[:6]
+
+
+def detect_history(f):
+    try:
+        f.facts["git"] = [ln[:90] for ln in Git(f.project).out("log", "-8", "--format=%s").splitlines() if ln.strip()]
+    except (RuntimeError, OSError):
+        pass
+
+
+DETECTORS = [detect_node, detect_python, detect_manifests, detect_rust_go, detect_make, detect_ci_script, detect_tooling, detect_ci_workflows, detect_tests, detect_history]
+
+
 def gather(project):
-    """The facts: {"files": n, "languages": [...], "top": [...], "manifests": {...}, "commands": {...}, "readme": str, "ci": [...], "tests": [...], "git": [...], "tools": [...]}."""
+    """The facts: {"files": n, "languages": [...], "top": [...], "manifests": {...}, "commands": {...}, "readme": str, "lead": str, "ci": [...], "tests": [...], "git": [...], "tools": [...]}."""
     project = Path(project)
     files = _files(project)
     langs = Counter(LANGS[Path(n).suffix.lower()] for n in files if Path(n).suffix.lower() in LANGS)
     top = Counter(n.split("/")[0] + "/" for n in files if "/" in n)         # folders only: loose root files are noise
-    commands = {}                                                     # {kind: [every command found]}: a mixed repo has more than one `test`
-
-    def add(kind, cmd):
-        if cmd not in commands.setdefault(kind, []):
-            commands[kind].append(cmd)
-    facts = {"files": len(files), "languages": [f"{k} ({v} files)" for k, v in langs.most_common(6)],
-             "top": [f"{k} ({v} files)" for k, v in sorted(top.items(), key=lambda kv: (-kv[1], kv[0]))[:14] if not k.startswith(".")] or ["no folders: everything is in the root"], "manifests": {}, "commands": commands, "tools": [], "ci": [], "tests": []}
-    pj = _json(project / "package.json")
-    if pj:
-        deps = sorted({*pj.get("dependencies", {}), *pj.get("devDependencies", {})})
-        facts["manifests"]["package.json"] = f"name {pj.get('name', '?')}; {pj.get('description', '')}; dependencies: {', '.join(deps[:20])}"
-        for key in ("dev", "start", "test", "lint", "build", "format", "typecheck"):
-            if key in pj.get("scripts", {}):
-                runner = "pnpm" if (project / "pnpm-lock.yaml").exists() else "yarn" if (project / "yarn.lock").exists() else "npm"
-                add(key, f"{runner} test" if key == "test" else f"{runner} run {key}" if runner == "npm" else f"{runner} {key}")
-    py = _read(project / "pyproject.toml")
-    if py:
-        name = re.search(r'^name\s*=\s*"([^"]+)"', py, re.MULTILINE)
-        facts["manifests"]["pyproject.toml"] = f"name {name.group(1) if name else '?'}; " + "; ".join(sorted(set(re.findall(r"^\[tool\.([a-z0-9_-]+)", py, re.MULTILINE)))[:8])
-        if "pytest" in py:
-            add("test", "python -m pytest")
-        if "[tool.ruff" in py:
-            add("lint", "ruff check .")
-    for name in ("requirements.txt", "requirements-dev.txt", "Pipfile", "setup.py", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "Gemfile", "composer.json"):
-        text = _read(project / name, 1500)
-        if text:
-            facts["manifests"][name] = " ".join(text.split())[:260]
-    if (project / "Cargo.toml").exists():
-        add("test", "cargo test")
-        add("build", "cargo build")
-    if (project / "go.mod").exists():
-        add("test", "go test ./...")
-        add("build", "go build ./...")
-    mk = _read(project / "Makefile")
-    if mk:
-        targets = re.findall(r"^([a-zA-Z][\w-]*):", mk, re.MULTILINE)
-        facts["manifests"]["Makefile"] = "targets: " + ", ".join(targets[:14])
-        for key in ("test", "lint", "build", "dev", "run", "check"):
-            if key in targets:
-                add(key, f"make {key}")
-    if (project / "scripts" / "ci.sh").is_file():
-        add("ci", "bash scripts/ci.sh (the orchestrator's CI command)")
-    for name, label in (("Dockerfile", "Docker"), ("docker-compose.yml", "Docker Compose"), ("tsconfig.json", "TypeScript config"), (".editorconfig", "EditorConfig"),
-                        (".prettierrc", "Prettier"), ("ruff.toml", "Ruff"), ("tox.ini", "tox"), ("pytest.ini", "pytest"), (".pre-commit-config.yaml", "pre-commit")):
-        if (project / name).exists():
-            facts["tools"].append(label)
-    facts["tools"] += [f"ESLint ({p.name})" for p in project.glob(".eslintrc*")] + (["ESLint (flat config)"] if any(project.glob("eslint.config.*")) else [])
-    for wf in sorted((project / ".github" / "workflows").glob("*.y*ml"))[:3]:
-        facts["ci"].append(f"{wf.name}: " + "; ".join(re.findall(r"^\s*-?\s*run:\s*(.+)$", _read(wf), re.MULTILINE)[:5]))
-    facts["tests"] = sorted({n.split("/")[0] for n in files if re.search(r"(^|/)(tests?|__tests__|spec)(/|$)|(_test|\.test|\.spec)\.\w+$", n)})[:6]
+    found = Found(project, files)
+    for detect in DETECTORS:
+        detect(found)
     raw = next((_read(project / n, 2500) for n in ("README.md", "README.rst", "README.txt", "README") if (project / n).is_file()), "")
-    facts["readme"], facts["lead"] = " ".join(raw.split())[:1200], lead(raw)
-    try:
-        log = Git(project).out("log", "-8", "--format=%s").splitlines()
-        facts["git"] = [ln[:90] for ln in log if ln.strip()]
-    except (RuntimeError, OSError):
-        facts["git"] = []
-    return facts
+    return {"files": len(files), "languages": [f"{k} ({v} files)" for k, v in langs.most_common(6)],
+            "top": [f"{k} ({v} files)" for k, v in sorted(top.items(), key=lambda kv: (-kv[1], kv[0]))[:14] if not k.startswith(".")] or ["no folders: everything is in the root"],
+            "readme": " ".join(raw.split())[:1200], "lead": lead(raw), **found.facts}
 
 
 def facts_text(facts):

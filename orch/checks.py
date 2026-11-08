@@ -28,28 +28,35 @@ def _ais(project):
         return {}
 
 
-def readiness(project, claude_json=None):
-    project = Path(project)
-    cfg = config.load(project)
-    ais = _ais(project)
-    out = []
+class Env:
+    """What every check may look at: the project, its config, the detected AIs, Claude Code's own config file."""
 
-    # git
-    git = Git(project)
+    def __init__(self, project, claude_json=None):
+        self.project = Path(project)
+        self.cfg = config.load(self.project)
+        self.ais = _ais(self.project)
+        self.claude_json = claude_json or os.environ.get("LONERCHESTRATOR_CLAUDE_JSON") or Path.home() / ".claude.json"
+
+
+# Each check takes an Env and returns a list of (status, title, hint). To add one, write a function and add it to CHECKS.
+def check_git(e):
+    git = Git(e.project)
     if git.run("rev-parse", "--is-inside-work-tree", check=False).returncode != 0:
-        out.append(("fail", "Git repository", "run `git init` and make a first commit"))
-    elif not git.has_branch(cfg["base"]):
-        out.append(("fail", f"Base branch '{cfg['base']}'", "pick an existing branch in Settings, or make a first commit"))
-    elif not git.clean():
-        out.append(("warn", "Uncommitted changes", "commit or stash: the orchestrator needs a clean working tree"))
-    else:
-        out.append(("ok", f"Git: base '{cfg['base']}', tree clean", ""))
+        return [("fail", "Git repository", "run `git init` and make a first commit")]
+    if not git.has_branch(e.cfg["base"]):
+        return [("fail", f"Base branch '{e.cfg['base']}'", "pick an existing branch in Settings, or make a first commit")]
+    if not git.clean():
+        return [("warn", "Uncommitted changes", "commit or stash: the orchestrator needs a clean working tree")]
+    return [("ok", f"Git: base '{e.cfg['base']}', tree clean", "")]
 
-    # the AIs the roles use (Claude Code, Antigravity, Codex, Gemini, Ollama, or anything defined under `providers`)
-    reg = providers.registry(cfg)
-    used = list(dict.fromkeys([r.get("cli", "claude") for r in cfg["roles"].values()] + [r["kind"] for r in cfg["reviewers"]]))
+
+def check_ais(e):
+    """The AIs the roles use (Claude Code, Antigravity, Codex, Gemini, Ollama, or anything defined under `providers`)."""
+    reg = providers.registry(e.cfg)
+    used = list(dict.fromkeys([r.get("cli", "claude") for r in e.cfg["roles"].values()] + [r["kind"] for r in e.cfg["reviewers"]]))
+    out = []
     for pid in used:
-        c, name = ais.get(pid), reg.get(pid, {}).get("name", pid)
+        c, name = e.ais.get(pid), reg.get(pid, {}).get("name", pid)
         if pid not in reg:
             out.append(("fail", f"'{pid}' is used by a role but not defined", "pick another AI in the AIs tab, or define it under `providers` in .orchestrator/config.json"))
         elif not c:
@@ -60,41 +67,51 @@ def readiness(project, claude_json=None):
             out.append(("fail", f"{name} is not logged in", f"run `{reg[pid]['exe']}` in a terminal, log in, then press d in the AIs tab"))
         else:
             out.append(("ok", f"{name} ready", ""))
-
-    # reviewers
-    revs = cfg["reviewers"]
-    if len({(r["kind"], r.get("model")) for r in revs}) < len(revs):
-        out.append(("warn", "Both reviewers use the same model", "pick different models in the AIs tab: they catch different mistakes"))
-    else:
-        out.append(("ok", "Two different reviewers", ""))
-
-    # CI command
-    first = cfg["ci"].split()
-    script = project / first[1] if len(first) > 1 and first[0] in ("bash", "sh") else None
-    if script and not script.is_file():
-        out.append(("fail", f"{first[1]} is missing", "create it (lint + tests + build, exit 1 on failure) or change the CI command in Settings"))
-    elif not trust.is_trusted(project, cfg):
-        out.append(("warn", "CI command not approved yet", "press Enter on CI command in Settings, or run `lonerchestrator trust`"))
-    else:
-        out.append(("ok", "CI command approved", ""))
-
-    # context for the agents
-    if not scout.filled(project):
-        out.append(("warn", "context/project.md is empty", "run `lonerchestrator context` and the AI studies the repository and fills it (the first run also does it by itself)"))
-    else:
-        out.append(("ok", "Project context filled in", ""))
-
-    # Claude Code's own folder trust (parent folders do not count)
-    t = _claude_trusts(project, claude_json or os.environ.get("LONERCHESTRATOR_CLAUDE_JSON") or Path.home() / ".claude.json")
-    if t is False:
-        out.append(("warn", "Folder not trusted by Claude Code", "run `claude` in this folder once and accept the dialog, or its permissions are ignored"))
-    elif t:
-        out.append(("ok", "Folder trusted by Claude Code", ""))
-
-    # something to do
-    n = len(list((project / "board" / "backlog").glob("*.md")))
-    out.append(("ok", f"{n} card(s) in the backlog", "") if n else ("warn", "No cards yet", 'add one: `lonerchestrator new "title"`'))
     return out
+
+
+def check_reviewers(e):
+    revs = e.cfg["reviewers"]
+    if len({(r["kind"], r.get("model")) for r in revs}) < len(revs):
+        return [("warn", "Both reviewers use the same model", "pick different models in the AIs tab: they catch different mistakes")]
+    return [("ok", "Two different reviewers", "")]
+
+
+def check_ci(e):
+    first = e.cfg["ci"].split()
+    script = e.project / first[1] if len(first) > 1 and first[0] in ("bash", "sh") else None
+    if script and not script.is_file():
+        return [("fail", f"{first[1]} is missing", "create it (lint + tests + build, exit 1 on failure) or change the CI command in Settings")]
+    if not trust.is_trusted(e.project, e.cfg):
+        return [("warn", "CI command not approved yet", "press Enter on CI command in Settings, or run `lonerchestrator trust`")]
+    return [("ok", "CI command approved", "")]
+
+
+def check_context(e):
+    if not scout.filled(e.project):
+        return [("warn", "context/project.md is empty", "run `lonerchestrator context` and the AI studies the repository and fills it (the first run also does it by itself)")]
+    return [("ok", "Project context filled in", "")]
+
+
+def check_claude_folder(e):
+    """Claude Code's own folder trust (parent folders do not count). No opinion when its config cannot be read."""
+    t = _claude_trusts(e.project, e.claude_json)
+    if t is False:
+        return [("warn", "Folder not trusted by Claude Code", "run `claude` in this folder once and accept the dialog, or its permissions are ignored")]
+    return [("ok", "Folder trusted by Claude Code", "")] if t else []
+
+
+def check_backlog(e):
+    n = len(list((e.project / "board" / "backlog").glob("*.md")))
+    return [("ok", f"{n} card(s) in the backlog", "")] if n else [("warn", "No cards yet", 'add one: `lonerchestrator new "title"`')]
+
+
+CHECKS = [check_git, check_ais, check_reviewers, check_ci, check_context, check_claude_folder, check_backlog]
+
+
+def readiness(project, claude_json=None):
+    env = Env(project, claude_json)
+    return [item for check in CHECKS for item in check(env)]
 
 
 def summary(checks):

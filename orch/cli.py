@@ -292,6 +292,25 @@ def cmd_status(a, project):
     return 0
 
 
+# Every command, spelled out: `lonerchestrator <name>` runs COMMANDS[name](args, project). A test keeps this in step with the cmd_* functions.
+COMMANDS = {
+    "init": cmd_init,
+    "intro": cmd_intro,
+    "new": cmd_new,
+    "answer": cmd_answer,
+    "trust": cmd_trust,
+    "doctor": cmd_doctor,
+    "ais": cmd_ais,
+    "run": cmd_run,
+    "tui": cmd_tui,
+    "context": cmd_context,
+    "web": cmd_web,
+    "live": cmd_live,
+    "tail": cmd_tail,
+    "status": cmd_status,
+}
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         s.reconfigure(encoding="utf-8", errors="replace")
@@ -342,4 +361,4 @@ def main(argv=None):
     if a.cmd is None:                       # bare `lonerchestrator` = open the TUI for this folder
         a = ap.parse_args(["-C", a.project, "live"])
     project = Path(a.project).resolve()
-    return globals()[f"cmd_{a.cmd}"](a, project)
+    return COMMANDS[a.cmd](a, project)

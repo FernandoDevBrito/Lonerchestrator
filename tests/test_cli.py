@@ -24,7 +24,7 @@ def test_init_new_and_dry_run(tmp_path, capsys):
 def test_bare_command_opens_live_for_this_folder(tmp_path, monkeypatch):
     from orch import cli
     seen = {}
-    monkeypatch.setattr(cli, "cmd_live", lambda a, project: seen.update(cmd=a.cmd, project=project) or 0)
+    monkeypatch.setitem(cli.COMMANDS, "live", lambda a, project: seen.update(cmd=a.cmd, project=project) or 0)
     assert main(["-C", str(tmp_path)]) == 0
     assert seen == {"cmd": "live", "project": tmp_path.resolve()}
 
@@ -34,3 +34,11 @@ def test_live_refuses_uninitialized_folder(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: "wt")
     assert main(["-C", str(tmp_path), "live"]) == 1
     assert "lonerchestrator init" in capsys.readouterr().out
+
+
+def test_every_command_function_is_in_the_command_table():
+    import inspect
+
+    from orch import cli
+    funcs = {n[4:] for n, f in inspect.getmembers(cli, inspect.isfunction) if n.startswith("cmd_")}
+    assert set(cli.COMMANDS) == funcs and all(callable(f) for f in cli.COMMANDS.values())

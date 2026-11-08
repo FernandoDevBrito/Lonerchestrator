@@ -4,7 +4,8 @@ const TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"];
 const COLS = [["backlog", "Backlog"], ["doing", "In progress"], ["review", "Review"], ["blocked", "Needs you"], ["done", "Done"]];
 const $ = id => document.getElementById(id);
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-let tab = "Board", shown = null, open = null, plannerId = null, flowCard = null, picked = {}, dragging = null, busy = false, again = false, dropped = false;
+const LINK = new URLSearchParams(location.search);              // deep links: ?tab=Flow  ?open=<card id>  ?card=<card id for Flow>  ?new=1&text=...
+let tab = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"].includes(LINK.get("tab")) ? LINK.get("tab") : "Board", shown = null, open = null, plannerId = null, flowCard = LINK.get("card"), picked = {}, dragging = null, busy = false, again = false, dropped = false;
 
 // Every piece of text from the server is added as a text node, never parsed as markup.
 // Handlers are properties (onclick = ...) so morph() can copy the newest closure onto an element that stays in the page.
@@ -101,6 +102,7 @@ function renderHead(s) {
   morphInto($("pills"), [...s.pills.map(p => h("span", {class: "pill" + (p.ok ? "" : " off"), key: p.id, title: p.ok ? p.id + " is ready" : p.id + " is not ready (see Settings)"}, p.id)),
     ...(s.parallel > 1 ? [h("span", {class: "pill", key: "par"}, s.parallel + " cards at once")] : []), ...(s.builders > 1 ? [h("span", {class: "pill", key: "bld"}, s.builders + " builders/card")] : [])]);
   $("dot").className = "dot" + (s.running ? " on" : "");
+  $("runstate").removeAttribute("title");
   $("runtxt").textContent = s.running ? "running" : (s.run_msg || "idle");
   $("run").disabled = s.running; $("stop").disabled = !s.running;
   const pr = $("problems");
@@ -123,7 +125,7 @@ async function detail(id) {
     kids.push(h("h4", {}, "The planner needs you"));
     c.questions.forEach((q, i) => {
       const ta = h("textarea", {placeholder: "or type your own answer", value: picked[c.id + i] || "", oninput: ev => { picked[c.id + i] = ev.target.value; }});
-      kids.push(h("div", {class: "q", key: "q" + i}, h("div", {}, (i + 1) + ". " + q.text),
+      kids.push(h("div", {class: "qbox", key: "q" + i}, h("div", {}, (i + 1) + ". " + q.text),
         q.options.map((o, k) => h("button", {key: "o" + k, class: "opt" + (picked[c.id + i] === o ? " sel" : ""), onclick: () => { picked[c.id + i] = o; refresh(true); }}, o)), ta));
     });
     kids.push(h("div", {class: "row"}, h("button", {onclick: () => act("/api/suggest", {id: c.id}, () => refresh(true))}, "Suggest answers"),
@@ -336,7 +338,7 @@ async function refresh() {
     shown = t;
     logs.forEach(([id, atEnd]) => { const p = $(id); if (p && atEnd) p.scrollTop = p.scrollHeight; });
     if (open) await showDrawer(open);
-  } catch (e) { $("runtxt").textContent = "offline: is lonerchestrator web still running?"; $("dot").className = "dot"; } finally { busy = false; if (again || t !== tab) { again = false; refresh(); } }
+  } catch (e) { $("runtxt").textContent = "offline"; $("runstate").title = "The page cannot reach lonerchestrator web: is it still running?"; $("dot").className = "dot"; } finally { busy = false; if (again || t !== tab) { again = false; refresh(); } }
 }
 
 const nb = $("newbox");
@@ -359,4 +361,7 @@ document.addEventListener("keydown", e => {
 });
 $("view").replaceChildren(h("div", {class: "grid board"}, [0, 1, 2, 3].map(i => h("div", {class: "col"}, h("div", {class: "sk", style: "height:14px;width:40%;margin:4px 4px 14px"}),
   h("div", {class: "sk card"}), i < 2 ? h("div", {class: "sk card", style: "margin-top:10px"}) : null))));
-renderTabs(); refresh(); setInterval(refresh, 1500);
+renderTabs(); refresh();
+if (!LINK.get("still")) setInterval(refresh, 1500);                // ?still=1 freezes the page after the first render (screenshots, demos)
+if (LINK.get("open")) setTimeout(() => openCard(LINK.get("open")), 700);
+if (LINK.get("new")) { $("ntext").value = LINK.get("text") || ""; nb.showModal(); }

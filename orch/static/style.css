@@ -140,7 +140,7 @@ html,body{overflow-x:clip}
 .detail li.done::before{background:var(--ink);border-color:var(--ink)}
 .detail li.done{color:var(--dim)}
 .detail ul.plain li{padding-left:0}.detail ul.plain li::before{display:none}
-.q{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin:10px 0;background:var(--panel)}
+.qbox{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin:10px 0;background:var(--panel)}
 .opt{display:block;width:100%;text-align:left;margin:6px 0;line-height:1.4;padding:8px 12px}
 .opt.sel{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border-radius:var(--r);padding:10px 12px;font-size:12px;margin:6px 0;line-height:1.55}

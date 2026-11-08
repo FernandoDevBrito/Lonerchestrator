@@ -6,6 +6,14 @@ A **local multi-agent orchestrator** for AI coding agents. You write small *card
 
 It runs entirely on your machine, on the AI subscriptions you are already logged in to (**Claude Code** by default; Antigravity, Codex, Gemini CLI, Ollama or any CLI you describe also work). No API keys, no hosted service, no GitHub Actions, no server.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
+  <img alt="The kanban board of lonerchestrator: Backlog, In progress, Needs you and Done" src="docs/images/board-light.png" width="100%">
+</picture>
+<br><sub>The board in your browser (<code>lonerchestrator web</code>): two cards being worked on at once, one waiting for your answers.</sub>
+</p>
+
 ```
  card ─▶ SPLIT ─▶ PLAN ─▶ BUILD ─▶ CHECKS ─▶ REVIEW ─▶ MERGE
           │         │        │         │         │         │
@@ -101,7 +109,20 @@ lonerchestrator init       # installs board, agents, guardrails, context/ and ru
 3. Open the panel and press `n`: write what you want changed in plain words, press `Enter`, and the card is created and the pipeline starts working on it (a vague request becomes questions for you, not guesses). `Tab` in that box picks the agent (backend, frontend, both). Prefer writing the card yourself? `lonerchestrator new "Add login"`, then edit it in `board/backlog/` with a goal and **testable** acceptance criteria.
 4. `lonerchestrator` opens the panel. Press `r` to run.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-request-dark.png">
+  <img alt="The New request dialog" src="docs/images/new-request-light.png" width="100%">
+</picture>
+<br><sub>Say what you want in plain words. The AI drafts the card, the pipeline starts, and a vague request becomes questions instead of guesses.</sub>
+</p>
+
 ## The panel
+
+<p align="center">
+<img alt="The panel in the terminal" src="docs/images/terminal.png" width="100%">
+<br><sub>The same board in the terminal panel (<code>lonerchestrator</code>), 120x34, driven by the keyboard.</sub>
+</p>
 
 Run `lonerchestrator` (no arguments) to open a window at exactly **120×34** with six tabs:
 
@@ -153,6 +174,14 @@ Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new r
 
 Vague cards ("make it faster", "a nice report") are **not implemented**. The agent stops and leaves numbered questions, and the card goes to **Needs you**. Cards that use all 3 attempts end up there too, with the partial work kept on the branch `card/<id>`.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/planner-dark.png">
+  <img alt="The Planner tab with a card's questions and three suggested answers" src="docs/images/planner-light.png" width="100%">
+</picture>
+<br><sub>The planner asks instead of guessing. Pick one of the 3 suggested answers or write your own, then <em>Send answers &amp; run</em>.</sub>
+</p>
+
 **Answer inside the panel:** open the card in the **Planner** tab (or select it on the Board) and press `a`. The questions appear one at a time, each with **3 suggested answers**: press `1`, `2` or `3` to pick one (it moves straight to the next question), or type your own answer and press `Enter` (`Esc` cancels, an empty answer skips that question). Once you have typed something, digits are plain text. If a card's questions came without suggestions (an older card, or an agent that forgot), the panel asks Claude for them in the background when you press `a`: one small haiku call, read-only, and you can start typing meanwhile. After the last one the answers are saved in the card under `## Answers`, its questions are cleared, and the card goes back to the backlog. Press `r` to run it again; the planner reads your answers and does not ask the same thing twice.
 
 **Without the panel:** `lonerchestrator answer 002` asks the same questions in the terminal (type 1-3 to pick a suggestion, or write your own) and does the same.
@@ -201,6 +230,35 @@ lonerchestrator web
 
 Everything the terminal panel does, in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Six tabs (keys `1`-`6`), updated by themselves while the pipeline runs:
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/flow-dark.png">
+  <img alt="The Flow tab: stages and reviewers of a card" src="docs/images/flow-light.png" width="100%">
+</picture>
+<br><sub>Flow: where a card is, and what each independent reviewer said.</sub>
+</p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-dark.png">
+  <img alt="A card's details in the side drawer" src="docs/images/card-light.png" width="100%">
+</picture>
+<br><sub>Click a card: goal, criteria, plan, task progress and what each agent did.</sub>
+</p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.png">
+  <img alt="The Agents tab with live output" src="docs/images/agents-light.png" width="100%">
+</picture>
+<br><sub>Agents: the live output of the planner, builder, reviewers and retro.</sub>
+</p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-dark.png">
+  <img alt="The Settings tab with the readiness checklist" src="docs/images/settings-light.png" width="100%">
+</picture>
+<br><sub>Settings: "Ready to run?" with the exact fix for each item, and every option.</sub>
+</p>
+
 - **Board:** the kanban. **Drag a card to another column**: Backlog to *Needs you* holds it, *Needs you* or *Done* back to Backlog re-queues it (a finished card can be redone), and dropping a card between others in the Backlog sets its priority (`priority:` in the card header; lower runs first). Valid columns light up while you drag; a card being worked on cannot be moved, and only the pipeline moves cards into *In progress* and *Done*. Without a mouse (or on a phone) open the card and use *Move to*.
 - **Flow:** the stages of a card (split, plan, build, checks, review, merge), the independent reviewers' verdicts and what happened, for the running card or any recent one.
 - **Planner:** every card with its goal, criteria, plan, task progress and log. Questions come with 3 suggested answers (click one or type your own, then *Send answers & run*); *Suggest answers* asks the AI when a card came without.
@@ -231,6 +289,14 @@ It falls back to ONE builder, with nothing kept from the attempt, whenever anyth
 ## Any AI
 
 Every role (splitter, planner, builder, retro, the two reviewers and the answer suggester) can run on **any AI command-line tool**, not only Claude Code. Pick them in the AIs tab, or in `.orchestrator/config.json`:
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ais-dark.png">
+  <img alt="The AIs tab with roles and usage" src="docs/images/ais-light.png" width="100%">
+</picture>
+<br><sub>Any AI in any role, with live usage: Claude's account limits, exact tokens when a CLI reports them, estimates marked <code>~</code>, and your own budgets.</sub>
+</p>
 
 ```json
 {

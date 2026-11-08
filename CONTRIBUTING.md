@@ -56,3 +56,13 @@ Small, explicit extension points instead of long `if` chains. Each one has a tes
 Where a card's work lives (the project itself, or a git worktree per card when cards run in parallel) is a *workspace*: `InPlace` in `pipeline.py` and `Hub` in `parallel.py` implement the same `merge`, `park`, `retro` and `lock`. The AI's name and how to get it ready (`name`, `url`, `install_hint`, `login_hint`) live in its preset, so no screen repeats them.
 
 Before a refactor, capture what the code does now (a test, or a before/after comparison on real projects) and keep it green: that is how these were done, one commit each.
+
+## Screenshots
+
+The README pictures live in `docs/images/` and come from a made-up demo project ("Orbit Shop"), so they never show real data. After you change the web page or the panel, regenerate them:
+
+```bash
+python docs/screenshots.py      # needs Microsoft Edge or Google Chrome installed (headless); writes light and dark versions
+```
+
+The page has deep links that the script uses (and you can too): `?tab=Flow`, `?open=<card id>`, `?new=1&text=...`, and `?still=1` to freeze the page after its first render.

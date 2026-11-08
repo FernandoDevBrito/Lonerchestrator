@@ -228,3 +228,9 @@ def test_the_page_keeps_its_plain_style():
     css = (web.STATIC / "style.css").read_text(encoding="utf-8")
     assert css.count("gradient(") == 1 and "feTurbulence" not in css                    # the skeleton shimmer is the only gradient; no noise overlay
     assert {r for r in __import__("re").findall(r"border-radius:([^;}]+)", css)} <= {"var(--r)", "var(--r-tag)", "50%", "3px", "4px", "0"}
+
+
+def test_the_page_supports_the_deep_links_the_docs_mention():
+    js = (web.STATIC / "app.js").read_text(encoding="utf-8")
+    for key in ('LINK.get("tab")', 'LINK.get("open")', 'LINK.get("new")', 'LINK.get("card")', 'LINK.get("still")'):
+        assert key in js, key

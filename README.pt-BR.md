@@ -6,6 +6,14 @@ Orquestrador local de agentes de IA. Você escreve **cards** de demanda; agentes
 
 Roda 100% na sua máquina, usando as assinaturas que você já tem logadas (**Claude Code** por padrão; Antigravity, Codex, Gemini CLI, Ollama ou qualquer CLI que você descrever também servem). Sem chaves de API, sem GitHub Actions, sem servidor.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
+  <img alt="O kanban do lonerchestrator: Backlog, In progress, Needs you e Done" src="docs/images/board-light.png" width="100%">
+</picture>
+<br><sub>O board no navegador (<code>lonerchestrator web</code>): dois cards em andamento ao mesmo tempo, um esperando as suas respostas.</sub>
+</p>
+
 ```
  card ─▶ SPLIT ─▶ PLAN ─▶ BUILD ─▶ CHECKS ─▶ REVIEW ─▶ MERGE
           │         │        │         │         │         │
@@ -97,7 +105,20 @@ lonerchestrator init         # instala board, agentes, guardrails, context/ e fa
 3. Abra o painel e aperte `n`: escreva em palavras simples o que quer mudar, aperte `Enter`, e o card é criado e o pipeline começa a trabalhar nele (um pedido vago vira perguntas para você, não chute). `Tab` nessa caixa escolhe o agente (backend, frontend, both). Prefere escrever o card você mesmo? `lonerchestrator new "Adicionar login"`, e edite em `board/backlog/` com objetivo e critérios **testáveis**.
 4. Abra o painel: `lonerchestrator`, e aperte `r`.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-request-dark.png">
+  <img alt="A caixa New request" src="docs/images/new-request-light.png" width="100%">
+</picture>
+<br><sub>Diga o que quer em palavras simples. A IA monta o card, o pipeline começa, e um pedido vago vira perguntas em vez de chutes.</sub>
+</p>
+
 ## O painel
+
+<p align="center">
+<img alt="O painel no terminal" src="docs/images/terminal.png" width="100%">
+<br><sub>O mesmo board no painel do terminal (<code>lonerchestrator</code>), 120x34, controlado pelo teclado.</sub>
+</p>
 
 `lonerchestrator` (sem argumentos) abre uma janela do Windows Terminal já em **120×34**, com seis abas:
 
@@ -151,6 +172,14 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 
 Cards vagos ("deixa mais rápido", "relatório bonito") **não são implementados**. O agente para e deixa perguntas numeradas, e o card vai para **Needs you**. Cards que estouram as 3 tentativas também vão para lá, com o trabalho parcial guardado na branch `card/<id>`.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/planner-dark.png">
+  <img alt="A aba Planner com as perguntas de um card e três respostas sugeridas" src="docs/images/planner-light.png" width="100%">
+</picture>
+<br><sub>O planner pergunta em vez de chutar. Escolha uma das 3 respostas sugeridas ou escreva a sua, depois <em>Send answers &amp; run</em>.</sub>
+</p>
+
 **Responda dentro do painel:** abra o card na aba **Planner** (ou selecione-o na Board) e aperte `a`. As perguntas aparecem uma por vez, cada uma com **3 respostas sugeridas**: aperte `1`, `2` ou `3` para escolher uma (já vai direto para a próxima pergunta), ou digite a sua e aperte `Enter` (`Esc` cancela, resposta vazia pula a pergunta). Depois que você digitou algo, os números viram texto normal. Se as perguntas de um card vieram sem sugestões (um card antigo, ou um agente que esqueceu), o painel pede ao Claude em segundo plano quando você aperta `a`: uma chamada pequena com haiku, somente leitura, e você já pode ir digitando. Depois da última, as respostas são gravadas no card em `## Answers`, as perguntas são limpas e o card volta para o backlog. Aperte `r` para rodar de novo; o planner lê suas respostas e não pergunta a mesma coisa duas vezes.
 
 **Sem o painel:** `lonerchestrator answer 002` faz as mesmas perguntas no terminal (digite 1-3 para escolher uma sugestão, ou escreva a sua) e faz o mesmo.
@@ -199,6 +228,35 @@ lonerchestrator web
 
 Tudo que o painel do terminal faz, no navegador, servido só para o seu computador (`127.0.0.1`, com um token aleatório no link que ele imprime). Seis abas (teclas `1`-`6`), que se atualizam sozinhas enquanto o pipeline roda:
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/flow-dark.png">
+  <img alt="A aba Flow: etapas e revisores de um card" src="docs/images/flow-light.png" width="100%">
+</picture>
+<br><sub>Flow: em que etapa o card está, e o que cada revisor independente disse.</sub>
+</p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-dark.png">
+  <img alt="Os detalhes de um card no painel lateral" src="docs/images/card-light.png" width="100%">
+</picture>
+<br><sub>Clique num card: objetivo, critérios, plano, progresso das tarefas e o que cada agente fez.</sub>
+</p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents-dark.png">
+  <img alt="A aba Agents com a saída ao vivo" src="docs/images/agents-light.png" width="100%">
+</picture>
+<br><sub>Agents: a saída ao vivo do planner, builder, revisores e retro.</sub>
+</p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-dark.png">
+  <img alt="A aba Settings com a lista de prontidão" src="docs/images/settings-light.png" width="100%">
+</picture>
+<br><sub>Settings: "Ready to run?" com o conserto exato de cada item, e todas as opções.</sub>
+</p>
+
 - **Board:** o kanban. **Arraste um card para outra coluna**: de Backlog para *Needs you* segura o card, de *Needs you* ou *Done* de volta para o Backlog recoloca na fila (um card pronto pode ser refeito), e soltar um card entre outros no Backlog define a prioridade (`priority:` no cabeçalho do card; menor roda primeiro). As colunas válidas acendem enquanto você arrasta; um card em andamento não pode ser movido, e só o pipeline move cards para *In progress* e *Done*. Sem mouse (ou no celular) abra o card e use *Move to*.
 - **Flow:** as etapas de um card (split, plan, build, checks, review, merge), os vereditos dos revisores independentes e o que aconteceu, do card em execução ou de qualquer recente.
 - **Planner:** todos os cards com objetivo, critérios, plano, progresso das tarefas e log. As perguntas vêm com 3 respostas sugeridas (clique em uma ou escreva a sua, depois *Send answers & run*); *Suggest answers* pede à IA quando o card veio sem.
@@ -229,6 +287,14 @@ Se qualquer coisa for duvidosa, volta para UM builder sem aproveitar nada da ten
 ## Qualquer IA
 
 Todo papel (splitter, planner, builder, retro, os dois revisores e o sugestor de respostas) pode rodar em **qualquer IA de linha de comando**, não só o Claude Code. Escolha na aba AIs, ou no `.orchestrator/config.json`:
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ais-dark.png">
+  <img alt="A aba AIs com papéis e uso" src="docs/images/ais-light.png" width="100%">
+</picture>
+<br><sub>Qualquer IA em qualquer papel, com o uso ao vivo: limites da conta Claude, tokens exatos quando a CLI informa, estimativas marcadas com <code>~</code> e os seus próprios orçamentos.</sub>
+</p>
 
 ```json
 {

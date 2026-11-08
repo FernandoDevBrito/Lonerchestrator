@@ -97,7 +97,7 @@ lonerchestrator init       # installs board, agents, guardrails, context/ and ru
 ```
 
 1. **Introduction** (`init`, or `lonerchestrator intro` any time): detects which AIs you are logged in to and lets you choose the model for each role, the two reviewers, and which agent handles each area.
-2. Fill in `context/project.md` (stack, how to run tests, conventions) and adapt `scripts/ci.sh` to your project.
+2. `context/project.md` (stack, how to run tests, conventions) fills itself: when it is empty, the first `lonerchestrator run` has the AI study your repository and write it (or run `lonerchestrator context` any time). Read it and correct anything wrong. Adapt `scripts/ci.sh` to your project.
 3. Open the panel and press `n`: write what you want changed in plain words, press `Enter`, and the card is created and the pipeline starts working on it (a vague request becomes questions for you, not guesses). `Tab` in that box picks the agent (backend, frontend, both). Prefer writing the card yourself? `lonerchestrator new "Add login"`, then edit it in `board/backlog/` with a goal and **testable** acceptance criteria.
 4. `lonerchestrator` opens the panel. Press `r` to run.
 
@@ -264,6 +264,16 @@ A provider is just *how to call the CLI* (its tokens can be read from what it pr
 You can change a preset the same way (an entry named `codex` in `providers` overrides its flags). Other AIs get the same instructions as the Claude agents (`.claude/agents/<role>.md` plus `CLAUDE.md`, put in the prompt) and the reviewers get the diff written into the prompt, so they work even if the CLI cannot read files.
 
 What stays the same for every AI: the guardrails on the diff (protected paths, size, secrets, deleted tests), the check that an AI did not touch `.git`, the CI command, the two independent reviewers and the human gates. What is different: `.claude/settings.json` (its allow/deny lists) only restricts Claude Code. For every other AI the limits are the flags in its provider (`edit_args`/`read_args`, e.g. a sandbox mode), so read them. Because a provider starts a program, a provider defined in a project's config must be approved once with `lonerchestrator trust`, like the CI command.
+
+## The agents study your project
+
+Agents read `context/project.md` before every card. When it is empty, the orchestrator studies the repository and fills it in, so the agents are not blind:
+
+- **When:** at the start of `lonerchestrator run` (the panel's and the web page's Run included) when there are cards to do, with `lonerchestrator context`, or with the *Study the project now* button in the web page's Settings tab.
+- **What it looks at, without any AI:** file tree and languages, `package.json` / `pyproject.toml` / `Cargo.toml` / `go.mod` / `Makefile` (scripts and targets become the test, lint and build commands, all of them in a mixed repo), tooling configs, CI workflows, test folders, the start of the README and the last commits. Secrets (`.env`, keys) are never read.
+- **Who writes it:** the AI with the `suggester` role gets only those facts (read-only, no tools) and writes the five bullets: what it is, stack, how to run/test/lint/build, conventions, what agents must never do. It is told to write `unknown: ask the user` instead of inventing. With no AI available, the facts are written as they are, so the file is never empty and a run never waits for an AI.
+- **Yours stays yours:** a file that already has content is never overwritten (`--force` drafts it again; `--basic` skips the AI). The new file is committed when your working tree was clean, so the run can go on; otherwise it is left for you to commit.
+- The facts (file names, manifest scripts, README start) go to the same AI you already use for the `suggester` role, nothing else leaves your machine.
 
 ## What each project gets
 

@@ -4,6 +4,8 @@
 
 First public version.
 
+- The agents study your project: when `context/project.md` is empty, the first run (or `lonerchestrator context`, or a web button) gathers facts from the repository (languages, manifests, scripts, CI, README, commits; never secrets) and has the `suggester` AI write it, falling back to the facts as they are. Never overwrites a file with content.
+
 - Usage for every AI: tokens read from what each CLI prints (configurable `usage`/`strip_after` per provider), an estimate marked `~` when it prints none, rolling 5h/day/week windows, your own `budgets` (tokens, calls or USD per window, with bars and reset time) and a `price` per provider for estimated cost.
 - Web page redesign: one accent, tinted shadows, sentence-case labels, focus rings, dimmed backdrop behind the card drawer, skeleton first load, composed empty states, staggered tab entry, no horizontal overflow on phones. Fixed: panels no longer move by themselves (animations only on kanban cards), what you type in a field survives refreshes, buttons read the fields on screen, dropped cards land at once and stay. Stricter content security policy (no inline scripts).
 - Web page: smoother updates (elements are patched in place, moves and new cards are animated, tab changes fade), cards land instantly when dropped.

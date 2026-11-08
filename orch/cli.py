@@ -53,7 +53,7 @@ def cmd_init(a, project):
         gi.write_text("\n".join(have + add) + "\n", encoding="utf-8")
     if sys.stdin.isatty():
         run_intro(project)
-    print("\nnext: `lonerchestrator intro` (pick AIs/agents) if skipped, fill context/project.md, adjust scripts/ci.sh, then `lonerchestrator new \"title\"` and `lonerchestrator live`")
+    print("\nnext: `lonerchestrator intro` (pick AIs/agents) if skipped, `lonerchestrator context` (the AI studies your repository and fills context/project.md), adjust scripts/ci.sh, then `lonerchestrator new \"title\"` and `lonerchestrator live`")
     return 0
 
 
@@ -189,6 +189,9 @@ def cmd_run(a, project):
     if not Git(project).clean():
         print("working tree not clean; commit or stash first")
         return 1
+    if Board(project).cards("backlog"):                       # the agents read context/project.md before every card: study the repository first if it is empty
+        from . import scout
+        scout.ensure(project)
     log = Log(project)
     jobs = a.jobs or cfg.get("parallel", 1)
     if jobs > 1:                                               # several cards at once, each in its own git worktree
@@ -204,6 +207,19 @@ def cmd_tui(a, project):
     if not ensure_trust(project, config.load(project)):
         return 1
     run_tui(project, a.base or config.load(project)["base"], autorun=a.run, tab=a.tab)
+    return 0
+
+
+def cmd_context(a, project):
+    """Study the repository and fill context/project.md (stack, how to run/test, conventions) so the agents know the project."""
+    from . import scout
+    if not (project / "board").exists():
+        print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
+        return 1
+    if scout.filled(project) and not a.force:
+        print("context/project.md already has content: it is never overwritten. Use --force to draft it again.")
+        return 0
+    scout.ensure(project, use_ai=not a.basic, force=a.force)
     return 0
 
 
@@ -302,6 +318,9 @@ def main(argv=None):
     p.add_argument("--base")
     p.add_argument("--run", action="store_true", help="start the pipeline right away")
     p.add_argument("--setup", action="store_true", help="run the introduction first")
+    p = sub.add_parser("context", help="study the project and fill context/project.md (stack, commands, conventions) for the agents")
+    p.add_argument("--force", action="store_true", help="draft it again even if the file has content")
+    p.add_argument("--basic", action="store_true", help="no AI: write only the facts found in the repository")
     p = sub.add_parser("web", help="kanban board in your browser: watch cards move, add requests in plain words, answer questions")
     p.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free one)")
     p.add_argument("--no-open", action="store_true", help="only print the link, do not open the browser")

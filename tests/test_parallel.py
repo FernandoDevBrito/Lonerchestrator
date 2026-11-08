@@ -12,9 +12,10 @@ from orch.board import Board, Card
 from orch.parallel import Parallel
 
 
-def test_two_cards_run_together_and_both_merge(project, mine, log):  # noqa: F811
+def test_two_cards_run_together_and_both_merge(project, mine, log, monkeypatch):  # noqa: F811
     cfg, calls = mine
     cfg["parallel"] = 2
+    monkeypatch.setenv("FAKEAI_BARRIER", "2")                       # each builder waits for the other to start: overlap is guaranteed if they truly run together
     add_card(project, "001-a")
     add_card(project, "002-b")
     assert Parallel(project, cfg, log, Runner(project, cfg, log)).run() == 0

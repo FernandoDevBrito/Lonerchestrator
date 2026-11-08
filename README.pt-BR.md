@@ -93,7 +93,7 @@ lonerchestrator init         # instala board, agentes, guardrails, context/ e fa
 ```
 
 1. **Introdução** (`init` ou `lonerchestrator intro`): detecta em quais IAs você está logado, deixa escolher o modelo de cada papel, os dois revisores e qual agente cuida de cada área.
-2. Preencha `context/project.md` (stack, como rodar testes, convenções) e ajuste `scripts/ci.sh` para o seu projeto.
+2. O `context/project.md` (stack, como rodar testes, convenções) se preenche sozinho: quando está vazio, o primeiro `lonerchestrator run` faz a IA estudar o seu repositório e escrevê-lo (ou rode `lonerchestrator context` quando quiser). Leia e corrija o que estiver errado. Ajuste o `scripts/ci.sh` para o seu projeto.
 3. Abra o painel e aperte `n`: escreva em palavras simples o que quer mudar, aperte `Enter`, e o card é criado e o pipeline começa a trabalhar nele (um pedido vago vira perguntas para você, não chute). `Tab` nessa caixa escolhe o agente (backend, frontend, both). Prefere escrever o card você mesmo? `lonerchestrator new "Adicionar login"`, e edite em `board/backlog/` com objetivo e critérios **testáveis**.
 4. Abra o painel: `lonerchestrator`, e aperte `r`.
 
@@ -262,6 +262,16 @@ Um provider é só *como chamar a CLI*: `cmd`, `model_args` (`{model}` é trocad
 Dá para mudar um preset do mesmo jeito (uma entrada `codex` em `providers` troca as flags dele). As outras IAs recebem as mesmas instruções dos agentes do Claude (`.claude/agents/<papel>.md` mais o `CLAUDE.md`, colocados no prompt) e os revisores recebem o diff dentro do prompt, então funcionam mesmo se a CLI não lê arquivos.
 
 O que vale para toda IA: os guardrails do diff (caminhos protegidos, tamanho, segredos, testes apagados), a checagem de que a IA não mexeu no `.git`, o comando de CI, os dois revisores independentes e as pausas humanas. O que muda: o `.claude/settings.json` (listas de permitir/negar) só restringe o Claude Code. Nas outras IAs os limites são as flags do provider (`edit_args`/`read_args`, por exemplo um modo sandbox), então leia-as. Como um provider inicia um programa, o que vem na config de um projeto precisa ser aprovado uma vez com `lonerchestrator trust`, como o comando de CI.
+
+## Os agentes estudam o seu projeto
+
+Os agentes leem o `context/project.md` antes de cada card. Quando ele está vazio, o orquestrador estuda o repositório e o preenche, para os agentes não trabalharem às cegas:
+
+- **Quando:** no começo do `lonerchestrator run` (inclusive o Run do painel e da página web) quando há cards a fazer, com `lonerchestrator context`, ou com o botão *Study the project now* na aba Settings da página web.
+- **O que ele olha, sem nenhuma IA:** árvore de arquivos e linguagens, `package.json` / `pyproject.toml` / `Cargo.toml` / `go.mod` / `Makefile` (scripts e alvos viram os comandos de teste, lint e build, todos eles num repositório misto), configs de ferramentas, workflows de CI, pastas de teste, o começo do README e os últimos commits. Segredos (`.env`, chaves) nunca são lidos.
+- **Quem escreve:** a IA do papel `suggester` recebe só esses fatos (somente leitura, sem ferramentas) e escreve os cinco itens: o que é, stack, como rodar/testar/lintar/buildar, convenções, o que os agentes nunca devem fazer. Ela é instruída a escrever `unknown: ask the user` em vez de inventar. Sem IA disponível, os fatos são escritos como estão, então o arquivo nunca fica vazio e uma execução nunca espera por uma IA.
+- **O que é seu continua seu:** um arquivo que já tem conteúdo nunca é sobrescrito (`--force` redige de novo; `--basic` pula a IA). O arquivo novo é commitado quando a sua árvore de trabalho estava limpa, para a execução seguir; senão ele fica para você commitar.
+- Os fatos (nomes de arquivos, scripts dos manifestos, começo do README) vão para a mesma IA que você já usa no papel `suggester`, nada mais sai da sua máquina.
 
 ## O que cada projeto ganha
 

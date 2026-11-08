@@ -34,7 +34,15 @@ elif "PHASE=IMPLEMENT" in prompt and "PART " in prompt:
     Path(os.environ["FAKEAI_LOG"]).with_name(f"part-{os.getpid()}.json").write_text(json.dumps({"cwd": os.getcwd()}), encoding="utf-8")   # one file per process: no append races
     print("RESULT: DONE")
 elif "PHASE=IMPLEMENT" in prompt:
-    time.sleep(0.6)                                  # long enough for parallel cards to overlap
+    time.sleep(0.6)
+    barrier = int(os.environ.get("FAKEAI_BARRIER", "0"))              # wait until N builders have started: forces parallel cards to overlap, however slow the machine
+    if barrier:
+        mark = Path(os.environ["FAKEAI_LOG"]).parent
+        (mark / f"start-{os.getpid()}.mark").write_text("x")
+        for _ in range(200):
+            if len(list(mark.glob("start-*.mark"))) >= barrier:
+                break
+            time.sleep(0.05)
     stem = Path(re.search(r"Card: (\S+\.md)", prompt).group(1)).stem
     Path(stem + ".py").write_text("def thing():\n    return 1\n", encoding="utf-8")
     note(built=stem, cwd=os.getcwd(), t0=t0, t1=time.time())

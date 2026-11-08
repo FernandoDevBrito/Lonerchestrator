@@ -302,7 +302,9 @@ async function renderAIs() {
 async function renderSettings() {
   const s = await api("/api/settings");
   const checks = h("div", {class: "box", key: "c"}, h("h2", {class: "t"}, "Ready to run? · " + s.summary), s.checks.map((c, i) => h("div", {class: "ck " + c.status, key: "ck" + i},
-    h("b", {}, c.status === "ok" ? "OK" : c.status === "warn" ? "REVIEW" : "FIX"), h("div", {}, c.title, c.hint ? h("div", {class: "ev"}, c.hint) : null))));
+    h("b", {}, c.status === "ok" ? "OK" : c.status === "warn" ? "REVIEW" : "FIX"),
+    h("div", {}, c.title, c.hint ? h("div", {class: "ev"}, c.hint) : null,
+      c.action === "context" ? h("button", {style: "margin-top:8px", onclick: () => act("/api/context", {})}, "Study the project now") : null))));
   const rows = s.settings.map(x => {
     let input;
     const save = v => act("/api/settings/set", {key: x.key, value: v});

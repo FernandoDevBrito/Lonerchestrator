@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 
-from . import config, providers, trust
+from . import config, providers, scout, trust
 from .gitops import Git
 
 PLACEHOLDER = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -79,11 +79,8 @@ def readiness(project, claude_json=None):
         out.append(("ok", "CI command approved", ""))
 
     # context for the agents
-    ctx = project / "context" / "project.md"
-    body = [ln for ln in PLACEHOLDER.sub("", ctx.read_text(encoding="utf-8")).splitlines() if ln.strip() and not ln.startswith("#")] if ctx.is_file() else []
-    filled = [ln for ln in body if len(ln.split(":", 1)[-1].strip()) > 3]
-    if not filled:
-        out.append(("warn", "context/project.md is empty", "tell the agents your stack and how to run tests: they read it before every card"))
+    if not scout.filled(project):
+        out.append(("warn", "context/project.md is empty", "run `lonerchestrator context` and the AI studies the repository and fills it (the first run also does it by itself)"))
     else:
         out.append(("ok", "Project context filled in", ""))
 

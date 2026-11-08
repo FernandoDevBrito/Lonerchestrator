@@ -9,3 +9,12 @@ dist/
 # orchestrator runtime state (when you run it on this repo itself)
 .orchestrator/
 board/
+# orchestrator runtime state
+board/*/*.md
+board/_log.md
+.orchestrator/runs/
+.orchestrator/streams/
+.orchestrator/state.json
+.orchestrator/ais.json
+.orchestrator/tui.size
+.orchestrator/run.out

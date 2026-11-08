@@ -208,6 +208,23 @@ class App:
         config.write_raw(self.project, raw)
         return {"msg": f"{key}: " + (f"{unit} limit {limit:g} per {per}" if limit else f"{unit} limit removed")}
 
+    def context_study(self):
+        """Have the AI study the repository and fill context/project.md (a few seconds, so it runs in the background)."""
+        from . import scout
+        if getattr(self, "_studying", False):
+            return {"msg": "already studying the project"}
+        if scout.filled(self.project):
+            return {"msg": "context/project.md already has content: it is never overwritten (use `lonerchestrator context --force`)"}
+        self._studying = True
+
+        def work():
+            try:
+                scout.ensure(self.project, say=lambda *_: None)
+            finally:
+                self._studying = False
+        threading.Thread(target=work, daemon=True).start()
+        return {"msg": "studying the project: context/project.md will be filled in a few seconds"}
+
     def ais_detect(self):
         if getattr(self, "_detecting", False):
             return {"msg": "already detecting"}
@@ -232,7 +249,7 @@ class App:
         for key, label, kind, options, unit, help_ in settings.SPEC:
             out.append({"key": key, "label": label, "kind": kind, "unit": unit, "help": help_, "value": settings.get(cfg, key),
                         "options": settings.branches(self.project) if kind == "branch" else options})
-        checks_ = [{"status": s, "title": t, "hint": h} for s, t, h in checks.readiness(self.project)]
+        checks_ = [{"status": s, "title": t, "hint": h, "action": "context" if t.startswith("context/project.md is empty") else ""} for s, t, h in checks.readiness(self.project)]
         ready, summary = checks.summary([(c["status"], c["title"], c["hint"]) for c in checks_])
         return {"settings": out, "checks": checks_, "ready": ready, "summary": summary}
 
@@ -309,6 +326,8 @@ class App:
         elif method == "POST":
             routes = {"/api/new": self.new, "/api/answer": self.answer, "/api/suggest": self.suggest, "/api/requeue": self.requeue, "/api/move": self.move,
                       "/api/reorder": self.reorder, "/api/ais/toggle": self.ais_toggle, "/api/ais/assign": self.ais_assign, "/api/settings/set": self.settings_set, "/api/budget": self.budget_set}
+            if path == "/api/context":
+                return self.context_study()
             if path == "/api/ais/detect":
                 return self.ais_detect()
             if path == "/api/ais/limits":

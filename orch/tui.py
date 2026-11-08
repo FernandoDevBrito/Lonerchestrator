@@ -9,7 +9,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import answer, checks, config, menu, settings, term, usage
+from . import answer, checks, config, menu, providers, settings, term, usage
 from .board import Board, Card, create_card
 from .safe import clean, keep_sgr
 from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
@@ -549,18 +549,16 @@ def usage_summary(x):
 
 def ai_rows(x):
     """Checklist rows: ('head', text) or ('item', key). Items are the selectable AI models."""
-    rows = []
+    rows, reg = [], providers.registry(x.cfg)
     clis = ["claude", "agy"] + [c for c, v in x.ais.items() if c not in ("claude", "agy") and v.get("installed")]
     for cli in clis:
-        label = {"claude": "Claude Code", "agy": "Antigravity"}.get(cli) or x.ais[cli].get("name") or cli
+        spec = reg.get(cli) or {}
+        label = spec.get("name") or x.ais.get(cli, {}).get("name") or cli
         info = x.ais.get(cli, {})
         state = "logged in" if info.get("logged_in") else ("not logged in" if info.get("installed") else "not installed")
         rows.append(("head", cli, label, state if info else "not detected \u00b7 press d"))
         if info and not info.get("logged_in"):
-            how = {"claude": "install: https://claude.com/claude-code" if not info.get("installed") else "run `claude`, log in, then press d",
-                   "agy": "optional, Gemini models: antigravity.google" if not info.get("installed") else "run `agy`, log in, then press d"}.get(cli) \
-                or f"run `{cli}` once to sign in or pull a model, then press d"
-            rows.append(("hint", how))
+            rows.append(("hint", spec.get("login_hint" if info.get("installed") else "install_hint", "")))
         rows += [("item", menu.keyof(c, m)) for c, m in x.avail if c == cli]
     return rows
 

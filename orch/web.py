@@ -154,7 +154,8 @@ class App:
         st, _ = load_events(self.project)
         runs = sorted((self.project / ".orchestrator" / "runs").glob("*")) if (self.project / ".orchestrator" / "runs").exists() else []
         run_id = st.get("run") or (runs[-1].name if runs else None)
-        return {"ais": [{"id": c, "name": v.get("name") or {"claude": "Claude Code", "agy": "Antigravity"}.get(c, c), "installed": v.get("installed", False),
+        reg = providers.registry(cfg)
+        return {"ais": [{"id": c, "name": reg.get(c, {}).get("name") or v.get("name") or c, "installed": v.get("installed", False),
                          "logged_in": v.get("logged_in", False),
                          "models": [{"key": menu.keyof(c, m), "model": m, "on": menu.keyof(c, m) in on, "used_by": used.get(menu.keyof(c, m), [])}
                                     for cl, m in avail if cl == c]} for c, v in ais.items() if v.get("installed") or c in ("claude", "agy")],

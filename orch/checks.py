@@ -62,9 +62,9 @@ def check_ais(e):
         elif not c:
             out.append(("warn", f"{name} not checked yet", "open the AIs tab and press d"))
         elif not c.get("installed"):
-            out.append(("fail", f"{name} is not installed", f"run `lonerchestrator ais` to install `{reg[pid]['exe']}`" + (", or see https://claude.com/claude-code" if pid == "claude" else ", or pick another AI for its roles in the AIs tab")))
+            out.append(("fail", f"{name} is not installed", f"run `lonerchestrator ais` to install `{reg[pid]['exe']}`" + (f", or see {reg[pid]['url']}" if reg[pid].get("url") else ", or pick another AI for its roles in the AIs tab")))
         elif not c.get("logged_in"):
-            out.append(("fail", f"{name} is not logged in", f"run `{reg[pid]['exe']}` in a terminal, log in, then press d in the AIs tab"))
+            out.append(("fail", f"{name} is not logged in", reg[pid]["login_hint"].replace("then press d", "then press d in the AIs tab")))
         else:
             out.append(("ok", f"{name} ready", ""))
     return out

@@ -14,6 +14,7 @@ A provider is a dict:
     can_edit     False for text-only models (they can review and suggest, not build)
     models       model names to offer ("default" = do not pass a model)
     models_cmd   command that lists models; models_style how to read it: "lines" | "tab" | "table"
+    url, install_hint, login_hint   where to get it and how to make it ready: shown by the panel, the web page and the readiness checks
     usage        how to read the tokens the CLI prints (see extract_usage); without it the runner estimates (about 4 characters per token)
     strip_after  text after which the CLI prints statistics, cut from the answer
     price        {"in": usd, "out": usd} per million tokens: turns tokens into an estimated cost
@@ -27,8 +28,9 @@ import subprocess
 DEFAULT_MODEL = "default"
 
 PRESETS = {
-    "claude": {"name": "Claude Code", "exe": "claude", "native": True, "can_edit": True, "models": ["sonnet", "opus", "haiku"], "tested": True},
-    "agy": {"name": "Antigravity CLI", "exe": "agy", "cmd": ["agy"], "model_args": ["--model", "{model}"], "extra_args": ["--output-format", "json"],
+    "claude": {"name": "Claude Code", "exe": "claude", "native": True, "can_edit": True, "models": ["sonnet", "opus", "haiku"], "tested": True,
+               "url": "https://claude.com/claude-code", "install_hint": "install: https://claude.com/claude-code"},
+    "agy": {"name": "Antigravity CLI", "exe": "agy", "install_hint": "optional, Gemini models: antigravity.google", "cmd": ["agy"], "model_args": ["--model", "{model}"], "extra_args": ["--output-format", "json"],
             "prompt_flag": "-p", "edit_args": ["--mode", "accept-edits"], "read_args": [], "output": "agy-json", "can_edit": True, "models": [],
             "models_cmd": ["agy", "models"], "models_style": "tab", "tested": True},
     "codex": {"name": "OpenAI Codex CLI", "exe": "codex", "cmd": ["codex", "exec"], "model_args": ["-m", "{model}"],
@@ -39,7 +41,7 @@ PRESETS = {
                "edit_args": ["--approval-mode", "auto_edit"], "read_args": ["--approval-mode", "plan"], "prompt_flag": "-p",
                "can_edit": True, "models": [DEFAULT_MODEL], "tested": False},
     "ollama": {"name": "Ollama (local models)", "exe": "ollama", "cmd": ["ollama", "run"], "model_args": ["{model}"], "prompt_via": "stdin",
-               "can_edit": False, "models": [], "models_cmd": ["ollama", "list"], "models_style": "table", "tested": False,
+               "can_edit": False, "models": [], "models_cmd": ["ollama", "list"], "login_hint": "run `ollama pull <model>` once, then press d", "models_style": "table", "tested": False,
                "extra_args": ["--verbose"], "strip_after": "total duration:",
                "usage": {"in_regex": r"prompt eval count:\s*(\d+)", "out_regex": r"(?<!prompt )eval count:\s*(\d+)"}},
 }
@@ -54,6 +56,8 @@ def _normalize(pid, spec):
     spec.setdefault("can_edit", True)
     spec.setdefault("models", [DEFAULT_MODEL])
     spec.setdefault("tested", False)
+    spec.setdefault("install_hint", f"install `{spec['exe']}`")           # shown where the panel says how to get this AI ready: one place, not one per screen
+    spec.setdefault("login_hint", f"run `{spec['exe']}`, log in, then press d")
     return spec
 
 

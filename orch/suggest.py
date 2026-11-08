@@ -6,7 +6,7 @@ import re
 import shutil
 import subprocess
 
-from . import config, providers, trust, usage
+from . import ai, config, trust, usage
 
 
 def ask_claude(prompt, cwd=None, model="haiku", timeout=120):
@@ -38,15 +38,14 @@ def asker(project):
     from pathlib import Path
     cfg = config.load(Path(project))
     role = cfg["roles"].get("suggester") or {"cli": "claude", "model": "haiku"}
-    cli, model = role.get("cli", "claude"), role.get("model")
+    who, model = ai.registry(cfg).get(role.get("cli", "claude")), role.get("model")
 
     def ask(prompt):
-        if cli == "claude":
-            return ask_claude(prompt, model=model or "haiku")
-        spec = providers.registry(cfg).get(cli)
-        if not spec or not providers.installed(spec) or (cfg.get("providers") and not trust.is_trusted(project, cfg)):
+        if who is None:
             return None
-        return providers.run_text(spec, model, prompt, "read", cwd=project)
+        if not who.native and (not who.installed() or (cfg.get("providers") and not trust.is_trusted(project, cfg))):
+            return None                          # not installed, or a command the repository defines and the user has not approved
+        return who.ask(model, prompt, cwd=None if who.native else project)
     return ask
 
 

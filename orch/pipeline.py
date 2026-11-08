@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import answer, groups, guardrails, menu, providers, term
+from . import ai, answer, groups, guardrails, menu, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -60,13 +60,16 @@ class Pipeline:
         agent_md, rules = body(self.p / ".claude" / "agents" / f"{agent}.md"), body(self.p / "CLAUDE.md")[:8000]
         return f"# Your role: {agent}\n{agent_md}\n\n# Project rules (CLAUDE.md)\n{rules}\n\n# Your task\n"
 
+    def _ai(self, pid):
+        found = ai.registry(self.cfg).get(pid)
+        if found is None:
+            raise ValueError(f"'{pid}' is not a defined AI (see `providers` in .orchestrator/config.json)")
+        return found
+
     def _ask(self, role, agent, prompt, mode="edit"):
-        """Run one role on whichever AI the config gives it (Claude Code natively, anything else through the provider registry)."""
+        """Run one role on whichever AI the config gives it: how that AI is called is its own business (see ai.py)."""
         spec = self.cfg["roles"][role]
-        pid = spec.get("cli", "claude")
-        if pid == "claude":
-            return self.run_.claude(role, agent, prompt, model=spec.get("model"))
-        return self.run_.provider(role, pid, spec.get("model"), self._instructions(agent) + prompt, mode)
+        return self._ai(spec.get("cli", "claude")).call(self.run_, role, agent, spec.get("model"), prompt, mode, self._instructions)
 
     # ---------- run ----------
     def preflight(self):
@@ -75,17 +78,17 @@ class Pipeline:
         bad = menu.problems(self.cfg)
         if bad:
             raise SystemExit("; ".join(bad) + ". Open the AIs tab (key 5) in `lonerchestrator` to fix it.")
-        reg = providers.registry(self.cfg)
+        reg = ai.registry(self.cfg)
         used = [(role, self.cfg["roles"][role], True) for role in ("planner", "builder", "retro") + (("splitter",) if self.cfg["split"] else ())]
         used += [(r["name"], {"cli": r["kind"], "model": r.get("model")}, r.get("required", True)) for r in self.cfg["reviewers"]]
         for label, s, required in used:
-            spec = reg.get(s.get("cli", "claude"))
-            if spec is None:
+            who = reg.get(s.get("cli", "claude"))
+            if who is None:
                 raise SystemExit(f"{label} uses an AI called '{s.get('cli')}' that is not defined. Pick another in the AIs tab or define it under `providers` in .orchestrator/config.json")
-            if label in ("planner", "builder", "retro", "splitter") and not spec["can_edit"]:
-                raise SystemExit(f"{label} uses {spec['name']}, which cannot edit files. Give that role an AI that can (AIs tab), keep {spec['name']} for reviewing")
-            if required and not shutil.which(spec["exe"]):
-                raise SystemExit(f"{label} needs {spec['name']} ('{spec['exe']}' is not installed). Run `lonerchestrator ais` to install it, or pick another AI for {label} in the AIs tab")
+            if label in ("planner", "builder", "retro", "splitter") and not who.can_edit:
+                raise SystemExit(f"{label} uses {who.name}, which cannot edit files. Give that role an AI that can (AIs tab), keep {who.name} for reviewing")
+            if required and not who.installed():
+                raise SystemExit(f"{label} needs {who.name} ('{who.spec['exe']}' is not installed). Run `lonerchestrator ais` to install it, or pick another AI for {label} in the AIs tab")
 
     def run(self, only=None):
         self.git.checkout(self.base)
@@ -304,17 +307,13 @@ class Pipeline:
         return False
 
     def _review(self, cid, review):
-        card_note = f"Review input (card without plan/log, diff, CI tail): {review.as_posix()}."
+        known = ai.registry(self.cfg)
+
         def one(r):
-            if r["kind"] == "claude":
-                o = self.run_.claude(r["name"], r["agent"], f"Evaluate card {cid}. {card_note} Follow your agent instructions.", model=r.get("model"))
-            else:                                # any other AI: same instructions, and the review input INLINED (it may not be able to read files)
-                spec = providers.registry(self.cfg).get(r["kind"])
-                if spec is None or (not r.get("required", True) and not shutil.which(spec["exe"])):
-                    return r["name"], ("APPROVED", f"skipped: {r['kind']} not installed")
-                text = review.read_text(encoding="utf-8", errors="replace")[:60000]
-                o = self.run_.provider(r["name"], r["kind"], r.get("model"),
-                                       self._instructions(r.get("agent", "qa")) + f"Evaluate card {cid}. Do not run commands or edit files.\n\n# REVIEW INPUT\n{text}", "read")
+            who = known.get(r["kind"])
+            if who is None or (not who.native and not r.get("required", True) and not who.installed()):
+                return r["name"], ("APPROVED", f"skipped: {r['kind']} not installed")
+            o = who.review(self.run_, r["name"], r.get("agent", "qa"), r.get("model"), cid, review, self._instructions)
             return r["name"], (verdict(o), o)
         with ThreadPoolExecutor(len(self.cfg["reviewers"])) as ex:
             return dict(ex.map(one, self.cfg["reviewers"]))

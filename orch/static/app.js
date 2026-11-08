@@ -39,7 +39,7 @@ const eta = s => { s = Math.max(0, Math.round(s)); const d = Math.floor(s / 8640
 const bar = (f, cls) => h("div", {class: "bar " + (cls || ""), role: "progressbar", ariaValueNow: String(Math.round(Math.min(Math.max(f, 0), 1) * 100))},
   h("i", {style: "transform:scaleX(" + Math.min(Math.max(f, 0), 1).toFixed(3) + ")"}));
 const level = f => f >= .85 ? "bad" : f >= .6 ? "warn" : "";
-const list = (items, done) => items.length ? h("ul", {}, items.map(i => h("li", {}, (done ? (i.done ? "☑ " : "☐ ") : "") + (done ? i.text : i)))) : h("p", {class: "ev"}, "—");
+const list = (items, done) => items.length ? h("ul", {class: done ? "" : "plain"}, items.map(i => h("li", {class: done && i.done ? "done" : ""}, done ? i.text : i))) : h("p", {class: "ev"}, "None yet");
 
 // ---------------------------------------------------------------- smooth updates
 // morph(): make the page look like a freshly built tree by patching it in place. Elements that stay keep their scroll, focus,
@@ -97,15 +97,15 @@ function enter(el) {
 
 // ---------------------------------------------------------------- header + tabs
 function renderHead(s) {
-  $("proj").textContent = s.project + " · " + s.base;
-  morphInto($("pills"), [...s.pills.map(p => h("span", {class: "pill", key: p.id}, (p.ok ? "● " : "○ ") + p.id)),
+  morphInto($("proj"), [h("span", {key: "n"}, s.project), h("span", {class: "br", key: "b"}, s.base)]);
+  morphInto($("pills"), [...s.pills.map(p => h("span", {class: "pill" + (p.ok ? "" : " off"), key: p.id, title: p.ok ? p.id + " is ready" : p.id + " is not ready (see Settings)"}, p.id)),
     ...(s.parallel > 1 ? [h("span", {class: "pill", key: "par"}, s.parallel + " cards at once")] : []), ...(s.builders > 1 ? [h("span", {class: "pill", key: "bld"}, s.builders + " builders/card")] : [])]);
   $("dot").className = "dot" + (s.running ? " on" : "");
   $("runtxt").textContent = s.running ? "running" : (s.run_msg || "idle");
   $("run").disabled = s.running; $("stop").disabled = !s.running;
   const pr = $("problems");
   pr.classList.toggle("show", s.problems.length > 0);
-  if (s.problems.length) pr.textContent = "Before it can run: " + s.problems.join(" · ");
+  if (s.problems.length) pr.textContent = "Before it can run: " + s.problems.join("; ");
 }
 function renderTabs() {
   morphInto($("tabs"), TABS.map((t, i) => h("button", {key: t, role: "tab", ariaSelected: String(t === tab), class: t === tab ? "on" : "", onclick: () => { tab = t; renderTabs(); refresh(true); }}, h("kbd", {}, String(i + 1)), t)));
@@ -114,8 +114,8 @@ function renderTabs() {
 // ---------------------------------------------------------------- card detail (drawer on the board, inline in the Planner tab)
 async function detail(id) {
   const c = await api("/api/card/" + encodeURIComponent(id));
-  const kids = [h("h3", {}, c.title), h("div", {class: "ev"}, c.id + " · " + c.state + " · " + c.area + (c.phase ? " · " + c.phase : "")),
-    h("h4", {}, "Goal"), h("p", {}, c.goal || "—"), h("h4", {}, "Acceptance criteria"), list(c.criteria, true)];
+  const kids = [h("h3", {}, c.title), h("div", {class: "meta"}, [c.id, c.state, c.area, c.phase].filter(Boolean).map(t => h("span", {}, t))),
+    h("h4", {}, "Goal"), h("p", {}, c.goal || "No goal written"), h("h4", {}, "Acceptance criteria"), list(c.criteria, true)];
   if (c.moves.length) kids.push(h("div", {class: "row"}, h("span", {class: "ev"}, "Move to:"),
     c.moves.map(to => h("button", {key: "mv" + to, onclick: () => act("/api/move", {id: c.id, to}, r => { if (r.unanswered) toast("Moved to the backlog, but its questions are still unanswered"); closeDrawer(); refresh(true); })},
                          to === "blocked" ? "Needs you (hold)" : to))));
@@ -135,13 +135,13 @@ async function detail(id) {
   if (c.out_of_scope) kids.push(h("h4", {}, "Out of scope"), h("pre", {}, c.out_of_scope));
   if (c.answers) kids.push(h("h4", {}, "Your answers"), h("pre", {}, c.answers));
   kids.push(h("h4", {}, "What happened"), c.events.length ? h("div", {}, c.events.map(e => h("div", {class: "ev"}, e.ts.slice(11) + "  " + e.agent + "  " + (e.result || e.kind)))) : h("p", {class: "ev"}, "nothing yet"),
-    h("h4", {}, "Card log"), h("pre", {class: "log"}, c.log.join("\n") || "—"));
+    h("h4", {}, "Card log"), h("pre", {class: "log"}, c.log.join("\n") || "Empty"));
   return h("div", {class: "detail"}, kids);
 }
 async function showDrawer(id) {
   const d = $("drawer"), body = await detail(id);
   if (open !== id) return;
-  morphInto(d, [h("button", {key: "x", class: "quiet", onclick: closeDrawer}, "← Back to the board"), body], false);
+  morphInto(d, [h("button", {key: "x", class: "quiet", onclick: closeDrawer}, "Back to the board"), body], false);
   d.classList.add("open");
   $("scrim").classList.add("on");
 }
@@ -152,7 +152,7 @@ $("scrim").onclick = closeDrawer;
 // ---------------------------------------------------------------- Board with drag and drop
 function cardEl(c) {
   const meta = [h("span", {class: "chip", key: "a"}, c.area)];
-  if (c.phase) meta.push(h("span", {class: "chip run", key: "p"}, "● " + c.phase));
+  if (c.phase) meta.push(h("span", {class: "chip run", key: "p"}, c.phase));
   if (c.questions) meta.push(h("span", {class: "chip q", key: "q"}, c.questions + (c.questions === 1 ? " question" : " questions")));
   if (+c.attempts > 0) meta.push(h("span", {class: "chip", key: "t"}, "try " + c.attempts));
   if (c.depends) meta.push(h("span", {class: "chip", key: "d"}, "after " + c.depends));
@@ -213,10 +213,10 @@ async function renderFlow() {
   const f = await api("/api/flow" + (flowCard ? "?card=" + encodeURIComponent(flowCard) : ""));
   const sel = h("select", {onchange: ev => { flowCard = ev.target.value; refresh(true); }}, f.cards.map(c => h("option", {value: c, selected: c === f.card, key: c}, c)));
   const kids = [h("div", {class: "row", key: "top"}, h("h2", {class: "t"}, "Flow of"), f.cards.length ? sel : h("span", {class: "ev"}, "no card yet"), f.attempts ? h("span", {class: "chip"}, "try " + f.attempts) : null),
-    h("h3", {style: "margin:4px 0", key: "title"}, f.title || ""), h("div", {class: "ev", key: "now"}, "▸ " + f.now),
-    h("div", {class: "stages", key: "stages"}, f.stages.map(s => h("div", {class: "stage " + s.status, key: s.name}, (s.status === "ok" ? "✓ " : s.status === "fail" ? "× " : "") + s.name)))];
+    h("h3", {style: "margin:4px 0", key: "title"}, f.title || ""), h("div", {class: "ev", key: "now"}, f.now),
+    h("div", {class: "stages", key: "stages"}, f.stages.map(s => h("div", {class: "stage " + s.status, key: s.name}, s.name)))];
   kids.push(h("h2", {class: "t", key: "rv"}, "Independent reviewers"), h("div", {class: "stages", key: "revs"}, f.reviewers.map(r =>
-    h("div", {class: "stage " + r.status, key: r.name}, r.name + " " + (r.verdict || (r.status === "running" ? "…" : "·"))))));
+    h("div", {class: "stage " + r.status, key: r.name}, r.name + " " + (r.verdict ? r.verdict.toLowerCase() : r.status === "running" ? "reviewing" : "waiting")))));
   kids.push(h("h2", {class: "t", key: "wh"}, "What happened"), f.events.length ? h("div", {class: "box", key: "ev"}, f.events.slice().reverse().map((e, i) =>
     h("div", {class: "ev", key: e.ts + e.agent + e.kind + i}, e.ts.slice(11, 16) + "  " + e.agent.padEnd(10) + "  " + (e.result || e.kind) + (e.secs >= 1 ? "  (" + Math.round(e.secs) + "s)" : "")))) : h("div", {class: "ev", key: "ev"}, "nothing yet"));
   return h("div", {}, kids);
@@ -226,7 +226,7 @@ async function renderFlow() {
 async function renderPlanner(s) {
   const all = COLS.flatMap(([k, label]) => s.columns[k].map(c => ({...c, col: k, label})));
   if (!plannerId || !all.some(c => c.id === plannerId)) plannerId = (all.find(c => c.col === "blocked") || all[0] || {}).id || null;
-  const left = h("div", {class: "box list", key: "l"}, COLS.map(([k, label]) => s.columns[k].length ? h("div", {key: k}, h("h4", {}, label + " · " + s.columns[k].length),
+  const left = h("div", {class: "box list", key: "l"}, COLS.map(([k, label]) => s.columns[k].length ? h("div", {key: k}, h("h4", {}, label, h("span", {class: "n"}, s.columns[k].length)),
     s.columns[k].map(c => h("div", {key: c.id, class: "item" + (c.id === plannerId ? " on" : ""), onclick: () => { if (plannerId !== c.id) picked = {}; plannerId = c.id; refresh(true); }},
       c.title, c.questions ? h("span", {class: "chip q", style: "margin-left:6px"}, c.questions + "?") : null))) : null));
   const right = h("div", {class: "box", key: "r"}, plannerId ? await detail(plannerId) : h("div", {class: "ev"}, "No cards yet: add a request."));
@@ -236,13 +236,13 @@ async function renderPlanner(s) {
 // ---------------------------------------------------------------- Agents
 async function renderAgents() {
   const a = await api("/api/agents");
-  return h("div", {class: "grid three"}, a.agents.map(x => h("div", {class: "box agent", key: x.name}, h("h2", {class: "t"}, x.name, h("span", {class: x.live ? "chip run" : "chip"}, x.live ? "● live" : "idle")),
-    h("pre", {class: "log", id: "log-" + x.name}, x.lines.join("\n") || "—"))));
+  return h("div", {class: "grid three"}, a.agents.map(x => h("div", {class: "box agent", key: x.name}, h("h2", {class: "t"}, x.name, h("span", {class: x.live ? "chip run" : "chip"}, x.live ? "live" : "idle")),
+    h("pre", {class: "log", id: "log-" + x.name}, x.lines.join("\n") || "No output yet"))));
 }
 
 // ---------------------------------------------------------------- AIs: who is on, who does what, usage, budgets
 const PERS = ["5h", "day", "week", "month"];
-function cell(w, unit) { if (!w) return "·"; const v = unit === "cost" ? "$" + w.cost.toFixed(2) : fmt(w.in + w.out); return (w.est ? "~" : "") + v; }
+function cell(w, unit) { if (!w) return "-"; const v = unit === "cost" ? "$" + w.cost.toFixed(2) : fmt(w.in + w.out); return (w.est ? "~" : "") + v; }
 function usageTable(a, ai) {
   const models = Object.keys(a.all_use[ai] || {});
   if (!models.length) return h("div", {class: "ev"}, "no calls yet");
@@ -250,7 +250,7 @@ function usageTable(a, ai) {
   return h("div", {class: "scroll"}, h("table", {class: "tbl"}, h("tr", {}, ["model", "calls", "this run", "5h", "day", "week", "all", ...(money ? ["cost"] : [])].map(t => h("th", {}, t))),
     models.map(m => {
       const all = a.all_use[ai][m], run = (a.run_use[ai] || {})[m], w = ((a.windows[ai] || {})[m]) || {};
-      const tok = v => v ? (v.est ? "~" : "") + fmt(v.in + v.out) : "·";
+      const tok = v => v ? (v.est ? "~" : "") + fmt(v.in + v.out) : "-";
       return h("tr", {key: m}, [m, all.calls, tok(run), tok(w["5h"]), tok(w.day), tok(w.week), tok(all), ...(money ? ["$" + all.cost.toFixed(2)] : [])].map(v => h("td", {}, v)));
     })));
 }
@@ -260,7 +260,7 @@ function budgetBlock(a, ai) {
   const lim = h("input", {type: "text", placeholder: "limit", style: "max-width:110px", inputMode: "decimal"});
   const per = h("select", {}, PERS.map(p => h("option", {value: p, selected: p === "day"}, "per " + p)));
   const rows = mine.map(b => h("div", {key: b.key + b.unit, style: "margin:8px 0"}, h("div", {class: "row", style: "margin:0"}, h("b", {}, b.key), b.unit,
-    h("span", {class: "ev"}, (b.unit === "cost" ? "$" + b.used.toFixed(2) + " of $" + b.limit : fmt(b.used) + " of " + fmt(b.limit)) + " per " + b.per + (b.est ? " (estimated)" : "") + (b.used ? " · oldest call leaves in " + eta(b.resets_in) : "")),
+    h("span", {class: "ev"}, (b.unit === "cost" ? "$" + b.used.toFixed(2) + " of $" + b.limit : fmt(b.used) + " of " + fmt(b.limit)) + " per " + b.per + (b.est ? " (estimated)" : "") + (b.used ? ", oldest call leaves in " + eta(b.resets_in) : "")),
     h("button", {title: "remove this limit", onclick: () => act("/api/budget", {key: b.key, unit: b.unit, per: b.per, limit: 0})}, "×")), bar(b.frac, level(b.frac))));
   return h("div", {key: "bud-" + ai}, rows, h("div", {class: "row"}, h("span", {class: "ev"}, "My limit:"), unit, lim, per,
     h("button", {onclick: ev => {                                    // read the fields on the page (the ones built above are replaced on every refresh)
@@ -275,7 +275,7 @@ async function renderAIs() {
   a.ais.forEach(ai => {
     left.push(h("div", {class: "box", key: ai.id, style: "margin-top:10px"}, h("div", {}, h("b", {}, ai.name), " ", h("span", {class: "chip " + (ai.logged_in ? "ok" : "q")}, ai.logged_in ? "logged in" : ai.installed ? "not logged in" : "not installed")),
       ai.models.map(m => h("label", {class: "chk", key: m.key}, h("input", {type: "checkbox", checked: m.on, onchange: () => act("/api/ais/toggle", {key: m.key})}), m.model,
-        m.used_by.length ? h("span", {class: "chip run"}, m.used_by.join(", ")) : null))));
+        m.used_by.length ? h("span", {class: "chip"}, m.used_by.join(", ")) : null))));
   });
   const roles = h("div", {class: "box", key: "roles"}, h("h2", {class: "t"}, "Who does what"), h("table", {class: "tbl"},
     a.slots.map(s => h("tr", {key: s.slot}, h("td", {}, s.slot), h("td", {}, h("select", {onchange: ev => act("/api/ais/assign", {slot: s.slot, key: ev.target.value})},
@@ -286,8 +286,8 @@ async function renderAIs() {
     x.resetsAt ? h("span", {class: "ev"}, "resets in " + eta(x.resetsAt - now)) : null), bar(x.utilization, level(x.utilization))) : h("div", {class: "ev", key: label}, label + ": unknown");
   const others = [...new Set([...Object.keys(a.all_use), ...a.budgets.map(b => b.key.split("/")[0]), ...a.ais.filter(x => x.installed && x.id !== "claude").map(x => x.id)])].filter(k => k !== "claude");
   const nameOf = k => (a.ais.find(x => x.id === k) || {name: k}).name;
-  const use = h("div", {class: "box", key: "usage"}, h("h2", {class: "t"}, "Usage · live"),
-    h("div", {class: "row", style: "margin:0"}, h("b", {}, "Claude Code"), h("span", {class: "ev"}, "account limits · " + (upd ? "updated " + eta(now - upd) + " ago" : "never read")),
+  const use = h("div", {class: "box", key: "usage"}, h("h2", {class: "t"}, "Usage"),
+    h("div", {class: "row", style: "margin:0"}, h("b", {}, "Claude Code"), h("span", {class: "ev"}, "account limits, " + (upd ? "updated " + eta(now - upd) + " ago" : "never read")),
       h("button", {disabled: a.job.probing, onclick: () => act("/api/ais/limits", {})}, a.job.probing ? "Asking…" : "Refresh limits")),
     win("session (5h)", w.five_hour), win("week", w.seven_day),
     a.limits.status && !["allowed", "allowed_warning"].includes(a.limits.status) ? h("div", {class: "chip fail"}, "status: " + a.limits.status) : null,
@@ -301,7 +301,7 @@ async function renderAIs() {
 // ---------------------------------------------------------------- Settings + "Ready to run?"
 async function renderSettings() {
   const s = await api("/api/settings");
-  const checks = h("div", {class: "box", key: "c"}, h("h2", {class: "t"}, "Ready to run? · " + s.summary), s.checks.map((c, i) => h("div", {class: "ck " + c.status, key: "ck" + i},
+  const checks = h("div", {class: "box", key: "c"}, h("h2", {class: "t"}, "Ready to run?", h("span", {class: "n"}, s.summary)), s.checks.map((c, i) => h("div", {class: "ck " + c.status, key: "ck" + i},
     h("b", {}, c.status === "ok" ? "OK" : c.status === "warn" ? "REVIEW" : "FIX"),
     h("div", {}, c.title, c.hint ? h("div", {class: "ev"}, c.hint) : null,
       c.action === "context" ? h("button", {style: "margin-top:8px", onclick: () => act("/api/context", {})}, "Study the project now") : null))));
@@ -347,7 +347,7 @@ $("nsend").onclick = async () => {
   try {
     const r = await api("/api/new", {text: $("ntext").value, area: $("narea").value, ai: $("nai").checked, run: $("nrun").checked});
     nb.close(); $("ntext").value = "";
-    toast("Created “" + r.draft.title + "” (" + r.draft.area + ", " + r.draft.source + ")" + (r.started ? " · working on it" : ""));
+    toast("Created “" + r.draft.title + "” (" + r.draft.area + ", " + r.draft.source + ")" + (r.started ? ", working on it" : ""));
     refresh();
   } catch (e) { toast(e.message); } finally { btn.disabled = false; btn.textContent = "Create"; }
 };

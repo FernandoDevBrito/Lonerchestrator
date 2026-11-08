@@ -218,3 +218,13 @@ def test_the_route_table_is_the_api_surface(server):
     assert webcore.find_route("POST", "/api/state") is None and webcore.find_route("GET", "/api/nope") is None
     call, *_ = server
     assert call("GET", "/api/nope")[0] == 404 and call("POST", "/api/state", {})[0] == 404
+
+
+def test_the_page_keeps_its_plain_style():
+    """No em/en dashes, no decorative status dots or unicode check glyphs, no gradients on surfaces (only the loading shimmer), one radius scale."""
+    for name in ("index.html", "app.js", "style.css"):
+        text = (web.STATIC / name).read_text(encoding="utf-8")
+        assert not [c for c in "—–●○☑☐▸" if c in text], name
+    css = (web.STATIC / "style.css").read_text(encoding="utf-8")
+    assert css.count("gradient(") == 1 and "feTurbulence" not in css                    # the skeleton shimmer is the only gradient; no noise overlay
+    assert {r for r in __import__("re").findall(r"border-radius:([^;}]+)", css)} <= {"var(--r)", "var(--r-tag)", "50%", "3px", "4px", "0"}

@@ -6,19 +6,19 @@
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="Local kanban board for lonerchestrator: cards, plans, agents, usage and settings.">
 <title>lonerchestrator board</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232a7fa6'/%3E%3Cpath d='M9 22V10h4v8h10v4z' fill='white'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23c2410c'/%3E%3Cpath d='M9 22V10h4v8h10v4z' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <a class="skip" href="#view">Skip to the board</a>
 <header>
-  <h1><span class="mark" aria-hidden="true"></span>lonerchestrator <span id="proj" class="pill"></span></h1>
+  <h1>lonerchestrator <span id="proj"></span></h1>
   <span id="pills" aria-label="AIs on this computer"></span>
   <span class="sp"></span>
-  <span id="runstate" class="pill" role="status"><span class="dot" id="dot"></span><span id="runtxt">connecting</span></span>
+  <span id="runstate" class="pill mono" role="status"><span class="dot" id="dot"></span><span id="runtxt">connecting</span></span>
   <button id="run">Run</button>
   <button id="stop">Stop</button>
-  <button id="newbtn" class="primary">＋ New request</button>
+  <button id="newbtn" class="primary">New request</button>
 </header>
 <div class="navwrap"><nav id="tabs" role="tablist" aria-label="Views"></nav></div>
 <div id="problems" role="alert"></div>

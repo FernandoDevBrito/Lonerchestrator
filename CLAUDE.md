@@ -24,6 +24,8 @@ Never deploy; deploy is a manual command by me. Config: `.orchestrator/config.js
 - Agents do not commit, merge, push, switch branches, or edit `scripts/`, `.claude/`, `CLAUDE.md`, `GEMINI.md`. The orchestrator owns git.
 - Stay inside the card's scope; "Out of scope" is binding. One card = one branch.
 - Before work read `memory/<area>.md` and `context/`; after work append lessons to `memory/<area>.md`.
+- Evidence over memory: a claim about this project points to `path:line`, a command's output or a commit. What you cannot point to, you ask.
+- Decisions leave a trail: one line per decision in `context/decisions.md` (date, decision, why, card). Areas are the keys of `agents` in the config (default: backend, frontend, both, docs).
 - Lazy default (ponytail): stdlib first, fewest files, no unrequested abstractions.
 
 ## Agent protocol (machine-read, plain text on its own line)

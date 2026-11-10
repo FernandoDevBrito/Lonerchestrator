@@ -16,12 +16,18 @@
   <span id="pills" aria-label="AIs on this computer"></span>
   <span class="sp"></span>
   <span id="runstate" class="pill mono" role="status"><span class="dot" id="dot"></span><span id="runtxt">connecting</span></span>
+  <button id="theme" class="quiet" title="Theme (t)" aria-label="Switch theme">Auto</button>
+  <button id="helpbtn" class="quiet" title="Help and shortcuts (?)" aria-label="Help and shortcuts">Help</button>
   <button id="run">Run</button>
   <button id="stop">Stop</button>
   <button id="newbtn" class="primary">New request</button>
 </header>
 <div class="navwrap"><nav id="tabs" role="tablist" aria-label="Views"></nav></div>
 <div id="problems" role="alert"></div>
+<div id="filters" class="filters" hidden>
+  <input type="search" id="q" placeholder="Filter by title or number   ( / )" aria-label="Filter cards by title or number" autocomplete="off">
+  <div class="seg" role="group" aria-label="Filter by area" id="areas"></div>
+</div>
 <main id="view" tabindex="-1" aria-live="off"></main>
 
 <dialog id="newbox" aria-labelledby="ntitle">
@@ -30,7 +36,7 @@
   <label for="ntext">What do you need?</label>
   <textarea id="ntext" placeholder="e.g. Add a logout button to the header that clears the session and returns to the login page"></textarea>
   <label for="narea">Built by</label>
-  <select id="narea"><option value="">auto (the AI decides)</option><option>backend</option><option>frontend</option><option>both</option></select>
+  <select id="narea"><option value="">auto (the AI decides)</option></select>
   <div class="row">
     <label><input type="checkbox" id="nai" checked> let the AI draft the card</label>
     <label><input type="checkbox" id="nrun" checked> start working now</label>
@@ -39,6 +45,11 @@
     <button id="ncancel">Cancel</button>
     <button id="nsend" class="primary">Create</button>
   </div>
+</dialog>
+
+<dialog id="helpbox" aria-labelledby="htitle">
+  <div class="row" style="margin:0;justify-content:space-between"><h3 id="htitle" style="margin:0;font-size:18px">How it works</h3><button id="hclose" class="quiet">Close</button></div>
+  <div id="helpbody"></div>
 </dialog>
 
 <div id="scrim"></div>

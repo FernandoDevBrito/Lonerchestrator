@@ -180,7 +180,7 @@ def cmd_run(a, project):
     if a.dry_run:
         for c in board.cards("backlog"):
             if a.card in (None, c.id):
-                bad = c.problems()
+                bad = c.problems(config.areas(cfg))
                 print(f"[dry-run] {c.id} | area={c.area} agent={cfg['agents'].get(c.area)} | card/{c.id} from {base} | "
                       f"{'INVALID: ' + '; '.join(bad) if bad else 'ok'} | reviewers: {', '.join(r['name'] for r in cfg['reviewers'])}")
         return 0
@@ -322,7 +322,7 @@ def main(argv=None):
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("new", help="create a card in board/backlog")
     p.add_argument("title")
-    p.add_argument("--area", choices=AREAS, default="backend")
+    p.add_argument("--area", default="backend", help=f"one of the areas in .orchestrator/config.json `agents` (default: {', '.join(AREAS)})")
     p = sub.add_parser("trust", help="approve the project's CI command (it runs through a shell)")
     p.add_argument("--yes", action="store_true", help="approve without asking")
     p = sub.add_parser("answer", help="answer the questions of a blocked card and send it back to the backlog")

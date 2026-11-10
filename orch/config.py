@@ -15,6 +15,7 @@ DEFAULTS = {
     "builders": 1,                        # builders working at the same time on ONE card, when its tasks declare disjoint [files: ...]
     "split": True,                        # splitter agent breaks big cards into child cards first
     "verbose": False,                     # True = full agent text in the live panes (artifacts always keep everything)
+    # each role (and reviewer) may add "effort": "low" | "medium" | "high" | "xhigh" | "max" (how hard the model thinks; unset = the CLI's default)
     "roles": {
         "splitter": {"cli": "claude", "model": "haiku"},
         "planner": {"cli": "claude", "model": "sonnet"},
@@ -24,7 +25,8 @@ DEFAULTS = {
     },
     "budgets": {},                        # your own usage limits per AI: {"agy": {"tokens": 5000000, "per": "day"}} (see usage.budget_state)
     "providers": {},                      # AI CLIs you define yourself (see providers.py); they join the presets
-    "agents": {"backend": "backend", "frontend": "frontend", "both": "backend"},
+    # area -> agent (.claude/agents/<agent>.md). The keys are the areas a card may have: add your own ("data": "data-eng") and write that agent
+    "agents": {"backend": "backend", "frontend": "frontend", "both": "backend", "docs": "docs"},
     # every reviewer must approve (unless required=false and its CLI is missing)
     "reviewers": [
         {"name": "qa", "kind": "claude", "agent": "qa", "model": "sonnet", "required": True},
@@ -40,6 +42,11 @@ DEFAULTS = {
     },
     "rate_limit": {"max_waits": 8, "base_seconds": 60, "cap_seconds": 1800},
 }
+
+
+def areas(cfg):
+    """The areas a card may have: the keys of the `agents` map."""
+    return tuple(cfg["agents"])
 
 
 def _merge(a, b):

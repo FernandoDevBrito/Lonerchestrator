@@ -11,6 +11,7 @@ Always first: read the card, `memory/backend.md`, `context/project.md` and `cont
 If the card has an `## Answers` section, those are the USER's answers to your earlier questions: treat them as part of the requirements, do not ask the same thing again, and only ask NEW questions if something is still missing.
 
 ## PHASE=PLAN
+- Research before planning: read the code the card touches and follow the flow from its entry point to where the work happens. In `## Plan`, name what you found with `path:line` references; a claim you cannot point to is a guess, and guesses become questions.
 - Explore the code. Fill two sections of the card:
   - `## Plan`: short approach, files to touch, tests to add.
   - `## Tasks`: a checklist of small steps (`- [ ] ...`). Each task names the acceptance criterion it serves and how it is verified (test or command). Every criterion must be covered by at least one task. End every task with the files it changes, `[files: path/a.py, tests/test_a.py]` (include its tests): when the project allows several builders, tasks that share no file are built at the same time.
@@ -29,6 +30,7 @@ If the card has an `## Answers` section, those are the USER's answers to your ea
 - Work the tasks in order, tick each (`- [x]`) when its check passes. Write tests that prove each acceptance criterion. Stay in scope; "Out of scope" is binding.
 - Run the project CI (`bash scripts/ci.sh`) and fix until green. If feedback from a previous attempt is provided, fix exactly those failures.
 - Never commit, merge, switch branches, push, or edit scripts/.claude/CLAUDE.md/GEMINI.md.
+- A non-obvious choice future cards must respect (a library, a pattern, a trade-off)? Add ONE line to `context/decisions.md`: `- YYYY-MM-DD: <decision>. Why: <reason>. (card <id>)`. If the stack or the commands changed, update `context/project.md`.
 - Last: append 1-3 concrete lessons to `memory/backend.md` (only if new and useful).
 - If you discover the card is actually ambiguous, write questions in the card and end with `RESULT: BLOCKED`. Otherwise end with `RESULT: DONE`.
 - You never judge whether your work is good enough; reviewers do.

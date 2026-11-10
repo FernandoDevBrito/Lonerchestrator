@@ -52,16 +52,25 @@ def assigned(cfg, slot):
     return keyof(r["kind"], r.get("model") or providers.DEFAULT_MODEL)
 
 
-def _assign(raw, cfg, slot, key):
+def effort(cfg, slot):
+    """The slot's effort word, or "" (the CLI's default)."""
+    r = cfg["roles"][slot] if slot in ROLES or slot == "suggester" else next(x for x in cfg["reviewers"] if x["name"] == slot)
+    return r.get("effort") or ""
+
+
+def _assign(raw, cfg, slot, key, eff=None):
+    """Give a slot a model (and keep its effort), or with `eff` change only its effort ("" = the CLI's default)."""
     cli, model = key.split("/", 1)
+    eff = effort(cfg, slot) if eff is None else eff
+    keep = {"effort": eff} if eff else {}
     if slot in ROLES or slot == "suggester":
-        raw.setdefault("roles", {})[slot] = {"cli": cli, "model": model}
+        raw.setdefault("roles", {})[slot] = {"cli": cli, "model": model, **keep}
     else:
         revs = raw.get("reviewers") or json.loads(json.dumps(cfg["reviewers"]))
         for r in revs:
             if r["name"] == slot:
                 r.clear()
-                r.update({"name": slot, "kind": cli, "model": model, "required": True, **({"agent": "qa"} if cli == "claude" else {})})
+                r.update({"name": slot, "kind": cli, "model": model, "required": True, **({"agent": "qa"} if cli == "claude" else {}), **keep})
         raw["reviewers"] = revs
 
 

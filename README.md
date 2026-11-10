@@ -161,7 +161,7 @@ Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new r
 | `lonerchestrator` | Open the panel for the project in the current folder (same as `live`) |
 | `init [--force]` | Set up a project (never overwrites existing files without `--force`) |
 | `intro [--yes]` | Detect logged-in AIs and assign models/agents (`--yes` accepts the defaults) |
-| `new "title" [--area frontend\|backend\|both]` | Create a numbered card in `board/backlog/` |
+| `new "title" [--area frontend\|backend\|both\|docs\|<yours>]` | Create a numbered card in `board/backlog/` |
 | `answer [card]` | Answer a blocked card's questions in the terminal and send it back to the backlog |
 | `trust [--yes]` | Approve the project's CI command (it runs through a shell). Asked once, the first time you open or run a project |
 | `run [--card id] [--base branch] [--dry-run]` | Process the backlog headless |
@@ -221,6 +221,13 @@ Checked by **code**, not by prompts, before CI runs:
 ```
 
 `base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide.
+
+### Effort, areas and the docs agent
+
+- **Effort per role.** Any role or reviewer can say how hard its model thinks: `"builder": {"cli": "claude", "model": "opus", "effort": "xhigh"}`, or `"effort": "low"` on the splitter to save quota. The words are `low`, `medium`, `high`, `xhigh`, `max` (unset = the CLI's default). Claude Code gets `--effort`; Codex gets `model_reasoning_effort` (above `high` is lowered to `high`); a CLI with no way to take it ignores it. Your own provider takes it with `"effort_args": ["--effort", "{effort}"]` and, optionally, `"efforts"` (the words it accepts). The web page's AIs tab has an effort list next to every role.
+- **Areas are yours.** The keys of `agents` are the areas a card may have, each mapped to an agent file: `"agents": {"data": "data-eng"}` adds a `data` area built by `.claude/agents/data-eng.md`. Other AIs get that file's text in their prompt, so any AI can play any agent. *Ready to run?* warns when an area's agent file is missing.
+- **The `docs` area: documenter and researcher.** Cards about documentation (README, guides, docstrings, API docs, changelog) or a question to answer ("which library fits us?") go to the `docs` agent. It reads before it writes, backs every claim about the project with `path:line` or a command's output, runs every example it writes, never changes product behaviour, and writes research to `docs/research/<card>.md`: short answer first, evidence, options with trade-offs, a recommendation. A request with words like *document*, *README*, *guide* or *research* (and no code words) is filed under `docs` by itself.
+- **Decisions leave a trail.** Every builder (backend, frontend, docs) records a non-obvious choice as one line in `context/decisions.md` (date, decision, why, card) and updates `context/project.md` when the stack or commands change, so the next agent does not repeat the debate.
 
 ## The kanban page (browser)
 
@@ -348,7 +355,7 @@ your-project/
 ├── CLAUDE.md  GEMINI.md          orchestrator and reviewer rules
 ├── board/{backlog,doing,review,done,blocked}/   cards (.md); local, gitignored
 ├── context/{project,decisions,history}.md       context the agents read
-├── memory/{backend,frontend,qa}.md              lessons learned per area (the retro agent maintains it)
+├── memory/{backend,frontend,docs,qa}.md         lessons learned per area (the retro agent maintains it)
 ├── .claude/{agents,skills,settings.json}        agents and permissions
 ├── scripts/ci.sh                                your lint + tests + build
 └── .orchestrator/                               config, per-run logs, live streams

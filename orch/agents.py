@@ -78,22 +78,19 @@ class Runner:
         return Runner(path, self.cfg, self.log, sleep=self.sleep, usage=self.usage)
 
     # public API used by the pipeline (tests replace this class with a fake)
-    def claude(self, role, agent, prompt, model=None):
+    def claude(self, role, agent, prompt, model=None, effort=None):
         exe = shutil.which("claude") or "claude"
         cmd = [exe, "-p", "--verbose", "--output-format", "stream-json", "--agent", agent, "--permission-mode", "acceptEdits",
-               *(["--model", model] if model else []), prompt]
+               *(["--model", model] if model else []), *(["--effort", effort] if effort else []), prompt]
         return self._run(role, cmd, claude=True)
 
-    def agy(self, role, model, prompt):
-        return self.provider(role, "agy", model, prompt, "read")
-
-    def provider(self, role, pid, model, prompt, mode="read"):
+    def provider(self, role, pid, model, prompt, mode="read", effort=None):
         """Any AI CLI described in the registry (presets + config `providers`). mode: "edit" may change project files, "read" must not."""
         reg = providers.registry(self.cfg)
         if pid not in reg:
             raise ValueError(f"{role} uses an AI called '{pid}' that is not defined (see `providers` in .orchestrator/config.json)")
         spec = reg[pid]
-        argv, stdin = providers.build_argv(spec, model, self._fit(prompt, spec, role), mode)
+        argv, stdin = providers.build_argv(spec, model, self._fit(prompt, spec, role), mode, effort)
         return self._run(role, argv, claude=False, model=model, spec=spec, stdin=stdin, ptok=len(prompt) // 4)
 
     def _fit(self, prompt, spec, role):

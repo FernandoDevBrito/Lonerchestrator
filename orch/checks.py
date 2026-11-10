@@ -106,7 +106,15 @@ def check_backlog(e):
     return [("ok", f"{n} card(s) in the backlog", "")] if n else [("warn", "No cards yet", 'add one: `lonerchestrator new "title"`')]
 
 
-CHECKS = [check_git, check_ais, check_reviewers, check_ci, check_context, check_claude_folder, check_backlog]
+def check_agents(e):
+    """Every area's agent needs its role file: Claude Code runs it, every other AI gets its text in the prompt."""
+    missing = sorted({a for a in e.cfg["agents"].values() if not (e.project / ".claude" / "agents" / f"{a}.md").is_file()})
+    if not missing:
+        return [("ok", f"Agents for every area ({', '.join(config.areas(e.cfg))})", "")]
+    return [("warn", "No role file for agent " + ", ".join(missing), "run `lonerchestrator init` (it adds missing files and keeps yours), or write .claude/agents/<name>.md")]
+
+
+CHECKS = [check_git, check_ais, check_reviewers, check_ci, check_context, check_claude_folder, check_agents, check_backlog]
 
 
 def readiness(project, claude_json=None):

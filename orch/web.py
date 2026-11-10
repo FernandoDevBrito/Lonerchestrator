@@ -56,7 +56,7 @@ class App(AisApi, SettingsApi):
         bad = [t for s, t, _ in checks.readiness(self.project) if s == "fail"]
         return {"project": self.project.name, "base": self.base, "columns": cols, "running": self.runner.running(), "run_msg": self.runner.message(),
                 "roles": {r: menu.assigned(cfg, r) for r in menu.SLOTS},
-                "pills": [{"id": k, "ok": bool(v.get("logged_in"))} for k, v in ais.items() if v.get("installed") or k in ("claude", "agy")], "parallel": cfg.get("parallel", 1), "builders": cfg.get("builders", 1), "problems": bad}
+                "pills": [{"id": k, "ok": bool(v.get("logged_in"))} for k, v in ais.items() if v.get("installed") or k in ("claude", "agy")], "areas": list(config.areas(cfg)), "parallel": cfg.get("parallel", 1), "builders": cfg.get("builders", 1), "problems": bad}
 
     @route("GET", "/api/card/", takes="tail")
     def card(self, cid):
@@ -151,7 +151,7 @@ class App(AisApi, SettingsApi):
         if len(text) < 3:
             raise Bad("write what you want changed")
         draft = intake.analyze(self.project, text, use_ai=bool(body.get("ai", True)))
-        area = body.get("area") if body.get("area") in ("frontend", "backend", "both") else draft["area"]
+        area = body.get("area") if body.get("area") in config.areas(config.load(self.project)) else draft["area"]
         path = create_card(self.project, draft["title"], area, goal=draft["goal"], criteria=draft["criteria"])
         if body.get("run", True):
             self.runner.start()

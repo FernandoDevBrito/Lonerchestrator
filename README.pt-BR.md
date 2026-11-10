@@ -159,7 +159,7 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 | `lonerchestrator` | Abre o painel do projeto da pasta atual (= `live`) |
 | `init [--force]` | Prepara o projeto (não sobrescreve arquivos existentes sem `--force`) |
 | `intro [--yes]` | Detecta IAs logadas e atribui modelos/agentes (`--yes` aceita os padrões) |
-| `new "título" [--area frontend\|backend\|both]` | Cria um card numerado em `board/backlog/` |
+| `new "título" [--area frontend\|backend\|both\|docs\|<sua>]` | Cria um card numerado em `board/backlog/` |
 | `answer [card]` | Responde as perguntas de um card bloqueado no terminal e o devolve ao backlog |
 | `trust [--yes]` | Aprova o comando de CI do projeto (roda por um shell). Perguntado uma vez, na primeira abertura ou execução |
 | `run [--card id] [--base branch] [--dry-run]` | Processa o backlog sem interface |
@@ -219,6 +219,13 @@ Verificados por **código**, não por prompt, antes dos testes:
 ```
 
 `base` é a branch que recebe os cards aprovados. Use outra (ex.: `agents-setup`) para a `main` ficar intocada até você decidir.
+
+### Esforço, áreas e o agente de docs
+
+- **Esforço por papel.** Qualquer papel ou revisor pode dizer o quanto o modelo pensa: `"builder": {"cli": "claude", "model": "opus", "effort": "xhigh"}`, ou `"effort": "low"` no splitter para poupar cota. As palavras são `low`, `medium`, `high`, `xhigh`, `max` (sem valor = o padrão da CLI). O Claude Code recebe `--effort`; o Codex recebe `model_reasoning_effort` (acima de `high` vira `high`); uma CLI que não aceita esforço ignora. O seu provider recebe com `"effort_args": ["--effort", "{effort}"]` e, se quiser, `"efforts"` (as palavras que ele aceita). A aba IAs da página tem uma lista de esforço ao lado de cada papel.
+- **As áreas são suas.** As chaves de `agents` são as áreas que um card pode ter, cada uma ligada a um arquivo de agente: `"agents": {"data": "data-eng"}` cria a área `data`, feita por `.claude/agents/data-eng.md`. As outras IAs recebem o texto desse arquivo no prompt, então qualquer IA faz o papel de qualquer agente. O *Pronto para rodar?* avisa quando falta o arquivo do agente de uma área.
+- **A área `docs`: documentador e pesquisador.** Cards de documentação (README, guias, docstrings, docs de API, changelog) ou com uma pergunta a responder ("qual biblioteca serve?") vão para o agente `docs`. Ele lê antes de escrever, sustenta cada afirmação sobre o projeto com `caminho:linha` ou a saída de um comando, roda todo exemplo que escreve, nunca muda o comportamento do produto e grava pesquisas em `docs/research/<card>.md`: resposta curta primeiro, evidências, opções com prós e contras, uma recomendação. Um pedido com palavras como *documentar*, *README*, *guia* ou *pesquisa* (e sem palavras de código) vai sozinho para `docs`.
+- **Decisões deixam rastro.** Todo builder (backend, frontend, docs) registra uma escolha não óbvia como uma linha em `context/decisions.md` (data, decisão, porquê, card) e atualiza `context/project.md` quando a stack ou os comandos mudam, para o próximo agente não repetir a discussão.
 
 ## O kanban no navegador
 
@@ -346,7 +353,7 @@ meu_projeto/
 ├── CLAUDE.md  GEMINI.md          regras do orquestrador e do revisor
 ├── board/{backlog,doing,review,done,blocked}/   cards (.md); fica local, no .gitignore
 ├── context/{project,decisions,history}.md       contexto lido pelos agentes
-├── memory/{backend,frontend,qa}.md              lições aprendidas por área (a retro cuida)
+├── memory/{backend,frontend,docs,qa}.md         lições aprendidas por área (a retro cuida)
 ├── .claude/{agents,skills,settings.json}        agentes e permissões
 ├── scripts/ci.sh                                lint + testes + build do projeto
 └── .orchestrator/                               config, logs por execução, streams

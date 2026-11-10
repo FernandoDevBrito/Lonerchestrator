@@ -24,7 +24,9 @@ class AisApi:
                          "logged_in": v.get("logged_in", False),
                          "models": [{"key": menu.keyof(c, m), "model": m, "on": menu.keyof(c, m) in on, "used_by": used.get(menu.keyof(c, m), [])}
                                     for cl, m in avail if cl == c]} for c, v in ais.items() if v.get("installed") or c in ("claude", "agy")],
-                "slots": [{"slot": s, "key": menu.assigned(cfg, s), "ok": menu.assigned(cfg, s) in on or cfg.get("use") is None, "options": menu.options(self.project, s)}
+                "efforts": providers.EFFORTS,
+                "slots": [{"slot": s, "key": menu.assigned(cfg, s), "effort": menu.effort(cfg, s),
+                           "takes_effort": bool(providers.effort_for(providers.registry(cfg).get(menu.assigned(cfg, s).split("/")[0], {}), "high")), "ok": menu.assigned(cfg, s) in on or cfg.get("use") is None, "options": menu.options(self.project, s)}
                           for s in menu.SLOTS],
                 "same_reviewers": menu.assigned(cfg, "qa") == menu.assigned(cfg, "cross"),
                 "limits": usage.read_limits().get("claude", {}), "run_use": usage.run_totals(self.project, run_id), "all_use": usage.all_totals(self.project),
@@ -44,13 +46,17 @@ class AisApi:
 
     @route("POST", "/api/ais/assign", takes="body")
     def ais_assign(self, body):
-        slot, key = body.get("slot"), body.get("key")
-        if slot not in menu.SLOTS or key not in menu.options(self.project, slot):
-            raise Bad("that AI cannot fill that role")
+        """Give a slot another model, or (with `effort`) change how hard its model thinks: "" = the CLI's default."""
         raw, cfg = config.read_raw(self.project), config.load(self.project)
-        menu._assign(raw, cfg, slot, key)
+        slot, eff = body.get("slot"), body.get("effort")
+        key = body.get("key") or (menu.assigned(cfg, slot) if slot in menu.SLOTS else None)
+        if eff is not None and eff not in ["", *providers.EFFORTS]:
+            raise Bad("effort must be one of: " + ", ".join(providers.EFFORTS))
+        if slot not in menu.SLOTS or (body.get("key") and key not in menu.options(self.project, slot)):
+            raise Bad("that AI cannot fill that role")
+        menu._assign(raw, cfg, slot, key, eff)
         config.write_raw(self.project, raw)
-        return {"msg": f"{slot} -> {key}"}
+        return {"msg": f"{slot} -> {key}" + (f", effort {eff or 'default'}" if eff is not None else "")}
 
     @route("POST", "/api/budget", takes="body")
     def budget_set(self, body):

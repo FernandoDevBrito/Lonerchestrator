@@ -234,3 +234,15 @@ def test_the_page_supports_the_deep_links_the_docs_mention():
     js = (web.STATIC / "app.js").read_text(encoding="utf-8")
     for key in ('LINK.get("tab")', 'LINK.get("open")', 'LINK.get("new")', 'LINK.get("card")', 'LINK.get("still")'):
         assert key in js, key
+
+
+def test_the_page_serves_every_role():
+    """Scrum master: board summary and a Needs-you badge. Everyone: filters, plain-words help. Designer: a manual theme. Developer: keys."""
+    js = (web.STATIC / "app.js").read_text(encoding="utf-8")
+    html = (web.STATIC / "index.html").read_text(encoding="utf-8")
+    for key in ("function summary(", 'class: "badge"', "const match =", "function showHelp(", "STAGE_HELP", 'e.key === "/"', 'e.key === "n"', 'localStorage.getItem("lc-theme")'):
+        assert key in js, key
+    for el in ('id="q"', 'id="areas"', 'id="theme"', 'id="helpbox"'):
+        assert el in html, el
+    css = (web.STATIC / "style.css").read_text(encoding="utf-8")
+    assert ":root[data-theme=dark]" in css and ":root:not([data-theme=light])" in css

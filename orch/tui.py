@@ -402,9 +402,6 @@ def answer_key(key, ui, x):
         ui.buf += key
 
 
-REQUEST_AREAS = ("backend", "frontend", "both")
-
-
 def request_title(text):
     first = re.split(r"(?<=[.!?])\s|\n", text.strip(), maxsplit=1)[0]
     return first[:60].rstrip(" .,;:") or "request"
@@ -436,7 +433,8 @@ def new_key(key, ui, x, runner):
     elif key == "\x1b":
         ui.mode, ui.msg = None, "request cancelled"
     elif key == "\t":
-        ui.area = REQUEST_AREAS[(REQUEST_AREAS.index(ui.area) + 1) % len(REQUEST_AREAS)]
+        areas = config.areas(x.cfg)
+        ui.area = areas[(areas.index(ui.area) + 1) % len(areas)] if ui.area in areas else areas[0]
     elif key in ("\x7f", "\x08"):
         ui.buf = ui.buf[:-1]
     elif len(key) == 1 and key >= " ":

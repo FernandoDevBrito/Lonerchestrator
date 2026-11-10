@@ -7,7 +7,7 @@ from pathlib import Path
 from .safe import clean
 
 STATES = ("backlog", "doing", "review", "done", "blocked")
-AREAS = ("frontend", "backend", "both")
+AREAS = ("frontend", "backend", "both", "docs")      # the default areas; a project's own are config.areas(cfg)
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
@@ -79,11 +79,11 @@ class Card:
                 out.append(line)
         return "\n".join(out)
 
-    def problems(self):
-        """Structural checks only; vagueness is judged by the planner agent."""
+    def problems(self, areas=AREAS):
+        """Structural checks only; vagueness is judged by the planner agent. `areas`: the project's (config.areas)."""
         p = []
-        if self.area not in AREAS:
-            p.append(f"area must be one of {AREAS}, got '{self.area}'")
+        if self.area not in areas:
+            p.append(f"area must be one of {', '.join(areas)}, got '{self.area}'")
         if not self.section("Goal") or self.section("Goal").startswith("<"):
             p.append("Goal is empty")
         crit = [c for c in re.findall(r"^- \[[ x]\] (.+)$", self.section("Acceptance criteria"), re.MULTILINE) if not c.startswith("<")]

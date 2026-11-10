@@ -7,7 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import ai, answer, groups, menu, term
+from . import ai, answer, config, groups, menu, providers, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -33,9 +33,6 @@ class _Guarded:
 
     def claude(self, *a, **kw):
         return self._call(self.runner.claude, *a, **kw)
-
-    def agy(self, *a, **kw):
-        return self._call(self.runner.agy, *a, **kw)
 
     def provider(self, *a, **kw):
         return self._call(self.runner.provider, *a, **kw)
@@ -73,9 +70,6 @@ class Pipeline:
         self.git, self.board = Git(project, hooks=cfg.get("git_hooks", False)), Board(project)
         self.run_ = _Guarded(runner, self.git)
 
-    def _m(self, role):
-        return self.cfg["roles"][role].get("model")
-
     def _instructions(self, agent):
         """Claude Code has its own agents (.claude/agents/<name>.md). Every other AI gets the same role text, plus the project rules, in the prompt."""
         def body(path):
@@ -93,7 +87,8 @@ class Pipeline:
     def _ask(self, role, agent, prompt, mode="edit"):
         """Run one role on whichever AI the config gives it: how that AI is called is its own business (see ai.py)."""
         spec = self.cfg["roles"][role]
-        return self._ai(spec.get("cli", "claude")).call(self.run_, role, agent, spec.get("model"), prompt, mode, self._instructions)
+        who = self._ai(spec.get("cli", "claude"))
+        return who.call(self.run_, role, agent, spec.get("model"), prompt, mode, self._instructions, providers.effort_for(who.spec, spec.get("effort")))
 
     # ---------- run ----------
     def preflight(self):
@@ -151,7 +146,7 @@ class Pipeline:
         """Validate, maybe split, move to doing and get on the card branch. Returns the Job, or None when the card was already dealt with."""
         t0, br = time.time(), f"card/{card.id}"
         agent = self.cfg["agents"].get(card.area, "backend")
-        bad = card.problems()
+        bad = card.problems(config.areas(self.cfg))
         if bad:
             self._block(card, br, t0, "invalid card: " + "; ".join(bad))
             return None
@@ -271,7 +266,7 @@ class Pipeline:
             self._block(card, br, t0, "vague or missing info, see Blockers / questions")
             return True
         if m == "SPLIT":
-            bad = [f"{k.id}: {'; '.join(k.problems())}" for k in kids if k.problems()]
+            bad = [f"{k.id}: {'; '.join(k.problems(config.areas(self.cfg)))}" for k in kids if k.problems(config.areas(self.cfg))]
             if len(kids) < 2 or bad:
                 for k in kids:
                     k.path.unlink()
@@ -292,7 +287,7 @@ class Pipeline:
             who = known.get(r["kind"])
             if who is None or (not who.native and not r.get("required", True) and not who.installed()):
                 return r["name"], ("APPROVED", f"skipped: {r['kind']} not installed")
-            o = who.review(self.run_, r["name"], r.get("agent", "qa"), r.get("model"), cid, review, self._instructions)
+            o = who.review(self.run_, r["name"], r.get("agent", "qa"), r.get("model"), cid, review, self._instructions, providers.effort_for(who.spec, r.get("effort")))
             return r["name"], (verdict(o), o)
         with ThreadPoolExecutor(len(self.cfg["reviewers"])) as ex:
             return dict(ex.map(one, self.cfg["reviewers"]))

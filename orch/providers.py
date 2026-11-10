@@ -11,6 +11,8 @@ A provider is a dict:
     prompt_flag  flag placed before the prompt when prompt_via is "arg", e.g. "-p"
     stdin_marker args added when the prompt comes from stdin, e.g. ["-"]
     output       "text" (default) or "agy-json"
+    effort_args  added when a role sets `effort` (how hard the model thinks), "{effort}" is replaced, e.g. ["-c", "model_reasoning_effort={effort}"]
+    efforts      the effort words this CLI accepts; a higher one asked for is lowered to its highest (no list = passed as given, no effort_args = ignored)
     can_edit     False for text-only models (they can review and suggest, not build)
     models       model names to offer ("default" = do not pass a model)
     models_cmd   command that lists models; models_style how to read it: "lines" | "tab" | "table"
@@ -26,15 +28,17 @@ import shutil
 import subprocess
 
 DEFAULT_MODEL = "default"
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]                    # the words a role's `effort` may use (Claude Code's own scale)
 
 PRESETS = {
     "claude": {"name": "Claude Code", "exe": "claude", "native": True, "can_edit": True, "models": ["sonnet", "opus", "haiku"], "tested": True,
-               "url": "https://claude.com/claude-code", "install_hint": "install: https://claude.com/claude-code"},
+               "efforts": EFFORTS, "url": "https://claude.com/claude-code", "install_hint": "install: https://claude.com/claude-code"},
     "agy": {"name": "Antigravity CLI", "exe": "agy", "install_hint": "optional, Gemini models: antigravity.google", "cmd": ["agy"], "model_args": ["--model", "{model}"], "extra_args": ["--output-format", "json"],
             "prompt_flag": "-p", "edit_args": ["--mode", "accept-edits"], "read_args": [], "output": "agy-json", "can_edit": True, "models": [],
             "models_cmd": ["agy", "models"], "models_style": "tab", "tested": True},
     "codex": {"name": "OpenAI Codex CLI", "exe": "codex", "cmd": ["codex", "exec"], "model_args": ["-m", "{model}"],
               "edit_args": ["--sandbox", "workspace-write"], "read_args": ["--sandbox", "read-only"],
+              "effort_args": ["-c", "model_reasoning_effort={effort}"], "efforts": ["low", "medium", "high"],
               "prompt_via": "stdin", "stdin_marker": ["-"], "can_edit": True, "models": [DEFAULT_MODEL], "tested": False,
               "usage": {"total_regex": r"tokens used\D+([\d,]+)"}},
     "gemini": {"name": "Gemini CLI", "exe": "gemini", "cmd": ["gemini"], "model_args": ["-m", "{model}"],
@@ -73,16 +77,15 @@ def registry(cfg=None):
     return reg
 
 
-def custom_part(cfg):
-    """The providers the USER defined in config: they run commands, so they take part in the trust approval."""
-    return (cfg or {}).get("providers") or {}
+def effort_for(spec, effort):
+    """The effort word to pass to this CLI: None when no effort is set or the CLI has no way to take one; lowered to the CLI's highest when above it."""
+    allowed = spec.get("efforts")
+    if not effort or not (spec.get("native") or spec.get("effort_args")):
+        return None
+    return effort if not allowed or effort in allowed else allowed[-1]
 
 
-def installed(spec, which=shutil.which):
-    return which(spec["exe"])
-
-
-def build_argv(spec, model, prompt, mode):
+def build_argv(spec, model, prompt, mode, effort=None):
     """(argv, stdin_text) for one call. mode is "edit" (may change project files) or "read" (must not)."""
     if spec.get("native"):
         raise ValueError(f"{spec['id']} is native: it is driven by its own runner")
@@ -91,6 +94,8 @@ def build_argv(spec, model, prompt, mode):
     argv = list(spec["cmd"])
     if model and model != DEFAULT_MODEL:
         argv += [a.replace("{model}", model) for a in spec.get("model_args", [])]
+    if e := effort_for(spec, effort):
+        argv += [a.replace("{effort}", e) for a in spec["effort_args"]]
     argv += spec.get("extra_args", [])
     argv += spec.get("edit_args" if mode == "edit" else "read_args", [])
     if spec["prompt_via"] == "stdin":

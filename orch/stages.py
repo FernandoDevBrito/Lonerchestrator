@@ -11,7 +11,7 @@ import re
 import time
 from collections import namedtuple
 
-from . import guardrails
+from . import graph, guardrails
 from .agents import marker
 
 Outcome = namedtuple("Outcome", "kind text")
@@ -32,7 +32,7 @@ class Job:
 
     def __init__(self, card, br, t0, agent):
         self.card, self.br, self.t0, self.agent = card, br, t0, agent
-        self.n, self.feedback, self.diff, self.ci_out = 0, None, "", ""
+        self.n, self.feedback, self.diff, self.ci_out, self.graph = 0, None, "", "", None
 
     @property
     def cid(self):
@@ -83,6 +83,7 @@ class Guardrails:
         p.git.add_all()
         j.diff = p.git.diff_cached(p.base)
         viol = guardrails.check_diff(p.cfg["guardrails"], p.git.changed(p.base), p.git.changed(p.base, deleted=True), j.diff)
+        draw(p, j)
         if not viol:
             return PASS
         p.log.event("guardrails", j.cid, "guardrails", f"attempt {j.n}: {len(viol)} violation(s)")
@@ -90,6 +91,24 @@ class Guardrails:
             p.log.say("pipeline", f"   ! {v}")
         j.card.log(f"attempt {j.n}: guardrails: " + "; ".join(viol))
         return retry("GUARDRAIL VIOLATIONS. Fix these:\n- " + "\n- ".join(viol))
+
+
+def draw(p, j):
+    """The change graph of this attempt (graph.py), saved with the run's artifacts for the web page and `lonerchestrator graph`.
+    It only reads git, and it is only a view: whatever goes wrong here is logged and the card carries on."""
+    j.graph = None
+    if not p.cfg.get("graph", {}).get("enabled", True):
+        return
+    t = time.time()
+    try:
+        j.graph = graph.build(p.p, p.base, staged=True, card=j.cid, attempt=j.n, guard=p.cfg["guardrails"], source="pipeline")
+    except Exception as e:  # noqa: BLE001
+        p.log.say("pipeline", f"   graph skipped: {type(e).__name__}: {str(e)[:160]}")
+        return
+    p.log.artifact(j.cid, f"graph{j.n}.json", graph.dumps(j.graph))
+    line = graph.summary_line(j.graph)
+    j.card.log(f"attempt {j.n}: {line}")
+    p.log.event("graph", j.cid, "graph", line.removeprefix("Graph: "), time.time() - t)
 
 
 class CI:
@@ -112,11 +131,15 @@ class Review:
 
     def run(self, p, j):
         p.log.state(card=j.cid, phase=f"review {j.n}")
-        review = p.log.artifact(j.cid, f"review{j.n}.txt", "# CARD\n" + j.card.for_review() + "\n\n# DIFF\n" + j.diff +
+        summary = ""            # derived from the diff alone, so the reviewers still never see the builder's reasoning
+        if j.graph is not None and p.cfg.get("graph", {}).get("review_summary"):
+            summary = "\n\n# CHANGE GRAPH (computed from the diff above)\n" + graph.review_text(j.graph)
+        review = p.log.artifact(j.cid, f"review{j.n}.txt", "# CARD\n" + j.card.for_review() + "\n\n# DIFF\n" + j.diff + summary +
                                 "\n\n# CI OUTPUT (tail)\n" + "\n".join(j.ci_out.splitlines()[-60:]))
         results = p._review(j.cid, review)
-        for name, (v, _) in results.items():
+        for name, (v, out) in results.items():
             p.log.event("review", j.cid, name, v)
+            p.log.artifact(j.cid, f"review{j.n}-{re.sub(r'[^A-Za-z0-9_.-]', '_', name)}.txt", out)      # each verdict, approved or not
         if all(v == "APPROVED" for v, _ in results.values()):
             return APPROVED
         j.card.log(f"attempt {j.n} rejected ({', '.join(f'{k}={v}' for k, (v, _) in results.items())})")

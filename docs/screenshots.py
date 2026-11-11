@@ -63,6 +63,105 @@ QUESTIONS = [
      ["Only users with the manager role", "Managers and support agents, with a limit per day", "Any signed in staff member"]),
 ]
 
+# The Python side of orbit-shop and one card's change to it: what the Change graph view draws (graph.py reads it from git like any card).
+SHOP = {
+    "api/__init__.py": "",
+    "api/repo.py": '''"""Orders storage (SQLite)."""
+import sqlite3
+
+
+class OrderRepo:
+    def __init__(self, path):
+        self.db = sqlite3.connect(path)
+
+    def order(self, order_id):
+        return self.db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+
+    def lines(self, order_id):
+        return self.db.execute("SELECT * FROM order_lines WHERE order_id = ?", (order_id,)).fetchall()
+''',
+    "api/routes.py": '''"""HTTP routes of the shop API."""
+from .repo import OrderRepo
+
+
+def get_order(repo: OrderRepo, order_id):
+    return {"order": repo.order(order_id), "lines": repo.lines(order_id)}
+''',
+    "api/reports.py": '''"""The daily report for the store manager."""
+from .repo import OrderRepo
+
+
+def daily_report(repo: OrderRepo, ids):
+    return [repo.order(i) for i in ids]
+''',
+}
+EXPORT_CHANGE = {
+    "api/repo.py": SHOP["api/repo.py"] + '''
+    def orders_between(self, start, end):
+        """Order lines whose order date is in [start, end], oldest first, one at a time."""
+        yield from self.db.execute("SELECT o.id, o.created, l.sku, l.qty, l.price FROM orders o JOIN order_lines l ON l.order_id = o.id "
+                                   "WHERE o.created BETWEEN ? AND ? ORDER BY o.created", (start, end))
+''',
+    "api/export.py": '''"""Orders as CSV, streamed row by row."""
+import csv
+import io
+
+from .repo import OrderRepo
+
+HEADER = ["order", "date", "sku", "qty", "price"]
+
+
+def csv_rows(repo: OrderRepo, start, end):
+    buf = io.StringIO()
+    out = csv.writer(buf)
+    out.writerow(HEADER)
+    for row in repo.orders_between(start, end):
+        out.writerow(row)
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate()
+''',
+    "api/routes.py": SHOP["api/routes.py"].replace("from .repo import OrderRepo\n", "from .export import csv_rows\nfrom .repo import OrderRepo\n") + '''
+
+def export_orders(repo: OrderRepo, start, end):
+    return {"content_type": "text/csv", "body": csv_rows(repo, start, end)}
+''',
+    "tests/test_export.py": '''from api.export import HEADER, csv_rows
+
+
+class FakeRepo:
+    def orders_between(self, start, end):
+        return [(1, "2026-11-01", "MUG-01", 2, 9.5)]
+
+
+def test_csv_has_a_header_and_the_rows():
+    text = "".join(csv_rows(FakeRepo(), "2026-11-01", "2026-11-30"))
+    assert text.splitlines()[0] == ",".join(HEADER)
+''',
+}
+DEMO = {}
+
+
+def write(p, files):
+    for path, text in files.items():
+        (p / path).parent.mkdir(parents=True, exist_ok=True)
+        (p / path).write_text(text, encoding="utf-8", newline="\n")
+
+
+def demo_graph(p, run):
+    """Card 005's first attempt as a branch, graphed by the real code and saved where the pipeline saves it."""
+    from orch import config, graph
+    cid = "005-order-export-csv"
+    subprocess.run(["git", "checkout", "-qb", f"card/{cid}"], cwd=p, check=True)
+    write(p, EXPORT_CHANGE)
+    subprocess.run(["git", "add", "api", "tests"], cwd=p, check=True)
+    subprocess.run(["git", "commit", "-qm", "Export orders as CSV"], cwd=p, check=True)
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=p, check=True)
+    m = graph.build(p, "main", f"card/{cid}", card=cid, attempt=1, guard=config.load(p)["guardrails"], source="pipeline")
+    (run / cid).mkdir(parents=True, exist_ok=True)
+    (run / cid / "graph1.json").write_text(graph.dumps(m), encoding="utf-8")
+    DEMO["sel"] = next(s["id"] for f in m["files"] for s in f["symbols"] if s["qual"] == "csv_rows")
+
 
 def card_text(cid, title, area, attempts, goal, crit, tasks, done, extra=""):
     t = f"---\ntitle: {title}\narea: {area}\nattempts: {attempts}\n---\n# {title}\n\n## Goal\n{goal}\n\n## Acceptance criteria\n" + "".join(f"- [ ] {c}\n" for c in crit)
@@ -85,6 +184,7 @@ def build_project(root):
     (p / "pyproject.toml").write_text('[project]\nname = "orbit-shop"\n[tool.pytest.ini_options]\n[tool.ruff]\n', encoding="utf-8")
     (p / "tests").mkdir()
     (p / "tests" / "test_search.py").write_text("def test_search():\n    assert True\n", encoding="utf-8")
+    write(p, SHOP)
     cli.main(["-C", str(p), "init"])
     raw = {"base": "main", "ci": "bash scripts/ci.sh", "parallel": 2, "builders": 2,
            "roles": {"splitter": {"cli": "claude", "model": "haiku"}, "planner": {"cli": "claude", "model": "sonnet"}, "builder": {"cli": "claude", "model": "sonnet"},
@@ -109,6 +209,7 @@ def build_project(root):
     (p / ".orchestrator" / "ais.json").write_text(json.dumps({"ts": "2026-11-08 09:00:00", "ais": ais}), encoding="utf-8")
     run = p / ".orchestrator" / "runs" / "20261108-091200"
     run.mkdir(parents=True)
+    demo_graph(p, run)
     ts = lambda m: time.strftime("%F %T", time.localtime(NOW - m * 60))  # noqa: E731
     ev = [("run_start", "-", "-", "5 card(s), base=main, 2 at a time", 0, 31), ("split", "006-dark-mode", "splitter", "single card", 4, 30), ("plan", "006-dark-mode", "frontend", "planned", 41, 30),
           ("split", "005-order-export-csv", "splitter", "single card", 3, 29), ("plan", "005-order-export-csv", "backend", "planned", 38, 29),
@@ -232,7 +333,9 @@ VIEWS = [  # name, query, width, height
 
 
 def main():
+    """`python docs/screenshots.py` takes every view; `python docs/screenshots.py graph card` only those."""
     from orch import web
+    only = set(sys.argv[1:])
     OUT.mkdir(parents=True, exist_ok=True)
     exe = browser()
     root = Path(tempfile.mkdtemp(prefix="lc-demo-"))
@@ -242,12 +345,15 @@ def main():
     base = url.split("?")[0]
     token = url.split("?t=")[1]
     try:
-        for name, query, w, h in VIEWS:
+        for name, query, w, h in VIEWS + [("graph", "graph=005-order-export-csv#sel=" + DEMO["sel"], 1360, 820)]:
+            if only and name not in only:
+                continue
             for theme in ("light", "dark"):
                 shot(exe, f"{base}?t={token}&still=1&{query}", str(OUT / f"{name}-{theme}.png"), w, h, theme == "dark")
                 print("wrote", f"{name}-{theme}.png")
-        terminal_shot(exe, project, str(OUT / "terminal.png"))
-        print("wrote terminal.png")
+        if not only or "terminal" in only:
+            terminal_shot(exe, project, str(OUT / "terminal.png"))
+            print("wrote terminal.png")
     finally:
         httpd.shutdown()
         shutil.rmtree(root, ignore_errors=True)

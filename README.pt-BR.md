@@ -166,6 +166,7 @@ Dentro de um terminal já aberto: `lonerchestrator tui` (precisa de pelo menos 1
 | `live` / `tui` | Painel em janela nova (tamanho fixo) / no terminal atual |
 | `tail <papel>` | Segue a saída de um agente (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
 | `status` | Contagem do board e últimos eventos |
+| `graph <card> [--attempt N] [--compare A..B] [--focus NOME] [--format tree\|ascii\|json\|mermaid\|dot\|svg] [--out ARQUIVO] [--tui]` | O [grafo de mudanças](#grafo-de-mudanças) de um card: os símbolos que o diff mudou e quem os usa |
 | `-C <pasta>` | (antes de qualquer comando) aponta outro projeto |
 
 ## Quando o card precisa de você
@@ -192,7 +193,7 @@ Verificados por **código**, não por prompt, antes dos testes:
 
 - arquivos protegidos intocáveis (`scripts/**`, `.claude/**`, `CLAUDE.md`, `GEMINI.md`, `.orchestrator/**`)
 - limite de arquivos e linhas por card (padrão 25 arquivos / 1000 linhas): card grande demais deve ser quebrado
-- testes apagados e segredos no diff (chaves, tokens, senhas) são rejeitados
+- testes apagados e segredos no diff (chaves, tokens, senhas) são rejeitados; um segredo é apontado como `caminho:linha`, nunca copiado para o card ou os logs
 - uma branch por card (`card/<id>`); nada é mergeado sem os dois revisores aprovarem e o CI passar
 - agentes não fazem commit, merge, push nem trocam de branch: o orquestrador é dono do git
 - rate limit/cota: espera com backoff e retoma; login expirado aborta sem perder o card
@@ -274,6 +275,25 @@ Tudo que o painel do terminal faz, no navegador, servido só para o seu computad
 **＋ New request** (em qualquer aba): diga em palavras simples o que quer mudar. A IA do papel `suggester` monta o card (título, qual agente constrói, objetivo, 2 a 5 critérios testáveis); sem IA disponível, usa um rascunho simples por regras, então o pedido nunca se perde. Marque *start working now* e o pipeline começa (ou pega o card se já estiver rodando). Pedido vago não tem problema: o planner pergunta em vez de chutar. **Run** e **Stop** ficam no cabeçalho.
 
 Segurança: a página só aceita pedidos com o token, vindos de `127.0.0.1`/`localhost` (proteção contra DNS rebinding) e, para alterações, da própria página (checagem de Origin). Tudo que o servidor envia é mostrado como texto, nunca como HTML. Use `--port N` para escolher a porta e `--no-open` para só imprimir o link.
+
+## Grafo de mudanças
+
+Antes de ler o diff de um card linha por linha, veja o que ele tocou: as funções, classes e arquivos que mudaram, e o código que os usa ou é usado por eles. Abra um card e clique em **Change graph** (ou `g`):
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/graph-dark.png">
+  <img alt="O grafo de mudanças de um card: arquivos como caixas, símbolos alterados como linhas, arestas de quem usa para o que é usado, e o painel lateral da função selecionada com o seu diff" src="docs/images/graph-light.png" width="100%">
+</picture>
+<br><sub>Arquivos são caixas, símbolos alterados são linhas (<code>+</code> adicionado, <code>~</code> modificado, <code>-</code> removido, <code>.</code> um vizinho sem mudança), as arestas vão de quem usa para o que é usado. Os hotspots, as mudanças mais conectadas, vêm marcados: comece por eles.</sub>
+</p>
+
+- **Clique em um símbolo** para ver onde ele está, o que usa, quem o usa, o que os revisores e os guardrails disseram dele e as suas próprias linhas do diff. **Focus here** mantém só ele e os vizinhos.
+- **View** filtra por status, testes, achados dos revisores e alertas dos guardrails; busque com `/`; **List** mostra o mesmo em texto; **Export** salva SVG, Mermaid (cole num pull request), DOT ou JSON. Arraste para mover, roda do mouse ou `+` `-` para zoom, `f` para enquadrar. A barra de endereço é sempre um link para essa visão exata (`?graph=<card>`).
+- **Tentativas:** cada tentativa salva o seu grafo, então dá para abrir uma anterior ou comparar duas e ver o que o ciclo de correção mudou.
+- **No terminal:** `lonerchestrator graph 005` imprime o mesmo como árvore; `--focus <nome>` a vizinhança de um símbolo, `--compare 1..2` duas tentativas, `--format mermaid|dot|svg|json --out ARQUIVO` um arquivo, `--tui` navega pelo teclado.
+
+Ele só mostra: nunca aprova nem bloqueia um card, lê o git sem rodar o seu código e nunca mostra um segredo nem o conteúdo de um arquivo protegido. Os revisores também podem receber um resumo dele calculado a partir do diff (*Reviewers read the graph* em Settings, desligado por padrão). Como é montado, o schema JSON e como adicionar uma linguagem: [docs/change-graph.md](docs/change-graph.md) (em inglês).
 
 ## Vários cards ao mesmo tempo
 

@@ -1,6 +1,6 @@
 ---
 title: <short title>
-area: backend            # frontend | backend | both
+area: backend            # backend | frontend | both | docs, or any key of "agents" in .orchestrator/config.json
 attempts: 0
 ---
 # <short title>

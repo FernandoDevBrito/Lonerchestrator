@@ -168,6 +168,7 @@ Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new r
 | `live` / `tui` `[--tab 1-5]` | Panel in a new window of the right size / in the current terminal, optionally opened on a tab |
 | `tail <role>` | Follow one agent's output (`planner`, `builder`, `qa`, `cross`, `retro`, `pipeline`) |
 | `status` | Board counts and latest events |
+| `graph <card> [--attempt N] [--compare A..B] [--focus NAME] [--format tree\|ascii\|json\|mermaid\|dot\|svg] [--out FILE] [--tui]` | A card's [change graph](#change-graph): the symbols its diff changed and what uses them |
 | `-C <dir>` | (before any command) target another project |
 
 ## When a card needs you
@@ -194,7 +195,7 @@ Checked by **code**, not by prompts, before CI runs:
 
 - protected paths cannot change (`scripts/**`, `.claude/**`, `CLAUDE.md`, `GEMINI.md`, `.orchestrator/**`)
 - diff size limits per card (default 25 files / 1000 lines): too-big cards must be split
-- deleted tests and secrets in the diff (keys, tokens, passwords) are rejected
+- deleted tests and secrets in the diff (keys, tokens, passwords) are rejected; a secret is reported as `path:line`, never copied into the card or the logs
 - one branch per card (`card/<id>`); nothing merges without both reviewers approving and CI passing
 - agents never commit, merge, push or switch branches: the orchestrator owns git
 - rate limits: waits with backoff and resumes; an expired login aborts without losing the card
@@ -276,6 +277,25 @@ Everything the terminal panel does, in your browser, served only to your own com
 **＋ New request** (any tab): say what you want changed in plain words. The AI with the `suggester` role drafts the card (title, which agent builds it, goal, 2 to 5 testable criteria); without a reachable AI a plain rule-based draft is used, so a request is never lost. Tick *start working now* and the pipeline starts (or picks the card up if it is already running). A vague request is fine: the planner asks you instead of guessing. **Run** and **Stop** are in the header.
 
 Safety: the page only accepts requests that carry the token, come from `127.0.0.1`/`localhost` (DNS-rebinding check) and, for changes, from the page itself (Origin check). Everything the server sends is shown as text, never as HTML. Use `--port N` to pick a port and `--no-open` to only print the link.
+
+## Change graph
+
+Before you read a card's diff line by line, see what it touched: the functions, classes and files it changed, and the code that uses them or is used by them. Open a card and press **Change graph** (or `g`):
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/graph-dark.png">
+  <img alt="The Change graph of a card: files as boxes, changed symbols as rows, edges from each user to what it uses, and the side panel of the selected function with its diff" src="docs/images/graph-light.png" width="100%">
+</picture>
+<br><sub>Files are boxes, changed symbols are rows (<code>+</code> added, <code>~</code> modified, <code>-</code> removed, <code>.</code> an unchanged neighbour), edges run from the user to what it uses. Hotspots, the most connected changes, are marked: start there.</sub>
+</p>
+
+- **Click a symbol** for where it is, what it uses, what uses it, what the reviewers and the guardrails said about it, and its own lines of the diff. **Focus here** keeps it and its neighbours.
+- **View** filters by status, tests, reviewer findings and guardrail hits; search with `/`; **List** shows the same thing as text; **Export** saves SVG, Mermaid (paste it in a pull request), DOT or JSON. Drag to pan, wheel or `+` `-` to zoom, `f` to fit. The address bar is always a link to this exact view (`?graph=<card>`).
+- **Attempts:** every attempt saves its graph, so you can open an earlier one or compare two and see what the fix loop changed.
+- **In the terminal:** `lonerchestrator graph 005` prints the same as a tree; `--focus <name>` one symbol's neighbourhood, `--compare 1..2` two attempts, `--format mermaid|dot|svg|json --out FILE` a file, `--tui` browses it with the keyboard.
+
+It only shows: it never approves or blocks a card, reads git without running your code, and never shows a secret or the content of a protected file. Reviewers can also get a short summary of it computed from the diff (*Reviewers read the graph* in Settings, off by default). How it is built, the JSON schema and how to add a language: [docs/change-graph.md](docs/change-graph.md).
 
 ## Several cards at once
 

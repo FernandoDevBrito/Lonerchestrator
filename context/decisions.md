@@ -1,3 +1,10 @@
 # Decisions
 
 <!-- One line per decision: date, decision, why. -->
+- 2026-11-11: Change graph uses only the standard library: Python through `ast`, the other languages through declaration patterns plus brace matching (`orch/symbols.py`). Why: nothing new to install or audit and it runs offline wherever the orchestrator runs; a real parser per language (tree-sitter) would be a native dependency. (change graph)
+- 2026-11-11: The change graph is a view, never a gate: built right after the guardrails check (pass or fail), and any error is logged while the card carries on. Why: guardrails stay in code and the approval and merge path stays exactly as it was. (change graph)
+- 2026-11-11: Graph snapshots are run artifacts (`.orchestrator/runs/<run>/<card>/graph<n>.json`), next to each reviewer's output (`review<n>-<name>.txt`); a card without one is graphed from its branch or merge commit. Why: attempts can be compared and reviewer findings laid on symbols with no new store. (change graph)
+- 2026-11-11: Reviewers read the graph summary only when `graph.review_summary` is on (default off), and it is computed from the diff alone. Why: the reviewers' input stays as it was unless the user opts in, and the builder's words never reach them. (change graph)
+- 2026-11-11: The secret guardrail says where (`possible secret in added line: path:line`), never what, and follows hunk headers so an added line starting with `++` is scanned too. Why: the old message did not say where to look; detection is the same or stricter. Approved by the user. (change graph)
+- 2026-11-11: A name resolves to a symbol by name alone only when exactly one symbol has it and it is not a common one (`get`, `run`, ...); symbol ids are the first 12 hex digits of sha1(path, qualified name, kind). Why: a wrong edge misleads a reviewer more than a missing one, and stable ids make attempts comparable and links durable. (change graph)
+- 2026-11-11: The web page asks for one symbol's diff lines when it is opened (never the whole diff) and draws up to 600 symbols, the list above that. Why: small responses and a canvas that stays responsive on big cards. (change graph)

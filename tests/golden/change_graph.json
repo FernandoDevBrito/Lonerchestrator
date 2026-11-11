@@ -1,0 +1,701 @@
+{
+ "schemaVersion": 1,
+ "stats": {
+  "files": 8,
+  "symbols": 19,
+  "changes": 13,
+  "added": 21,
+  "removed": 4,
+  "edges": 15,
+  "hotspots": 1,
+  "findings": 0,
+  "guardrails": 1
+ },
+ "files": [
+  {
+   "id": "d83d470c17ce",
+   "path": "Billing/InvoiceService.cs",
+   "oldPath": null,
+   "lang": "csharp",
+   "status": "modified",
+   "added": 5,
+   "removed": 0,
+   "note": "",
+   "guardrails": [],
+   "hunks": [
+    {
+     "old": 7,
+     "new": 7,
+     "lines": [
+      "         public void Create(Order order)",
+      "         {",
+      "             Count += 1;",
+      "+            Audit(order);",
+      "+        }",
+      "+",
+      "+        private void Audit(Order order)",
+      "+        {",
+      "         }",
+      "     }",
+      " }"
+     ]
+    }
+   ],
+   "symbols": [
+    {
+     "id": "581b4daeecab",
+     "name": "InvoiceService",
+     "qual": "InvoiceService",
+     "kind": "class",
+     "parent": null,
+     "status": "modified",
+     "added": 5,
+     "removed": 0,
+     "churnBucket": 2,
+     "range": {
+      "start": 3,
+      "end": 16
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 0
+    },
+    {
+     "id": "290bd73d505b",
+     "name": "Count",
+     "qual": "InvoiceService.Count",
+     "kind": "property",
+     "parent": "581b4daeecab",
+     "status": "context",
+     "added": 0,
+     "removed": 0,
+     "churnBucket": 0,
+     "range": {
+      "start": 5,
+      "end": 5
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    },
+    {
+     "id": "3285b2373533",
+     "name": "Create",
+     "qual": "InvoiceService.Create",
+     "kind": "method",
+     "parent": "581b4daeecab",
+     "status": "modified",
+     "added": 2,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 7,
+      "end": 11
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 2
+    },
+    {
+     "id": "cdcf44ec8a4a",
+     "name": "Audit",
+     "qual": "InvoiceService.Audit",
+     "kind": "method",
+     "parent": "581b4daeecab",
+     "status": "added",
+     "added": 2,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 13,
+      "end": 15
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    }
+   ]
+  },
+  {
+   "id": "4500a4b4ba7f",
+   "path": "app/billing.py",
+   "oldPath": null,
+   "lang": "python",
+   "status": "modified",
+   "added": 8,
+   "removed": 3,
+   "note": "",
+   "guardrails": [],
+   "hunks": [
+    {
+     "old": 1,
+     "new": 1,
+     "lines": [
+      " \"\"\"Billing.\"\"\"",
+      " from .store import Store",
+      "+from .tax import vat",
+      " ",
+      " ",
+      " class Invoice:",
+      "     total: int = 0",
+      " ",
+      "     def add(self, amount):",
+      "-        self.total += amount",
+      "+        self.total += vat(amount)",
+      "+        return self",
+      "+",
+      "+    def discount(self, pct):",
+      "+        self.total -= self.total * pct",
+      "         return self",
+      " ",
+      " ",
+      "-def make_invoice(store: Store):",
+      "-    inv = Invoice()",
+      "+def make_invoice(store: Store, pct=0):",
+      "+    inv = Invoice().discount(pct)",
+      "     store.keep(inv)",
+      "     return inv"
+     ]
+    }
+   ],
+   "symbols": [
+    {
+     "id": "a9e1c1710f01",
+     "name": "Module level",
+     "qual": "",
+     "kind": "module",
+     "parent": null,
+     "status": "modified",
+     "added": 1,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 1,
+      "end": 22
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    },
+    {
+     "id": "f72b962b1f6b",
+     "name": "Invoice",
+     "qual": "Invoice",
+     "kind": "class",
+     "parent": null,
+     "status": "modified",
+     "added": 5,
+     "removed": 1,
+     "churnBucket": 2,
+     "range": {
+      "start": 6,
+      "end": 15
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    },
+    {
+     "id": "686e7845fd32",
+     "name": "total",
+     "qual": "Invoice.total",
+     "kind": "field",
+     "parent": "f72b962b1f6b",
+     "status": "context",
+     "added": 0,
+     "removed": 0,
+     "churnBucket": 0,
+     "range": {
+      "start": 7,
+      "end": 7
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 2
+    },
+    {
+     "id": "0ef52c8896a3",
+     "name": "add",
+     "qual": "Invoice.add",
+     "kind": "method",
+     "parent": "f72b962b1f6b",
+     "status": "modified",
+     "added": 2,
+     "removed": 1,
+     "churnBucket": 1,
+     "range": {
+      "start": 9,
+      "end": 11
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 2
+    },
+    {
+     "id": "0957da2b1933",
+     "name": "discount",
+     "qual": "Invoice.discount",
+     "kind": "method",
+     "parent": "f72b962b1f6b",
+     "status": "added",
+     "added": 2,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 13,
+      "end": 15
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 2
+    },
+    {
+     "id": "5b6f7ffe0720",
+     "name": "make_invoice",
+     "qual": "make_invoice",
+     "kind": "function",
+     "parent": null,
+     "status": "modified",
+     "added": 2,
+     "removed": 2,
+     "churnBucket": 2,
+     "range": {
+      "start": 18,
+      "end": 21
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 6,
+     "hotspot": true
+    }
+   ]
+  },
+  {
+   "id": "48125de62665",
+   "path": "app/report.py",
+   "oldPath": null,
+   "lang": "python",
+   "status": "context",
+   "added": 0,
+   "removed": 0,
+   "note": "",
+   "guardrails": [],
+   "hunks": [],
+   "symbols": [
+    {
+     "id": "37ec04a17f5d",
+     "name": "monthly",
+     "qual": "monthly",
+     "kind": "function",
+     "parent": null,
+     "status": "context",
+     "added": 0,
+     "removed": 0,
+     "churnBucket": 0,
+     "range": {
+      "start": 4,
+      "end": 5
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    }
+   ]
+  },
+  {
+   "id": "a9266901f918",
+   "path": "app/store.py",
+   "oldPath": null,
+   "lang": "python",
+   "status": "context",
+   "added": 0,
+   "removed": 0,
+   "note": "",
+   "guardrails": [],
+   "hunks": [],
+   "symbols": [
+    {
+     "id": "a55245bb58d2",
+     "name": "Store",
+     "qual": "Store",
+     "kind": "class",
+     "parent": null,
+     "status": "context",
+     "added": 0,
+     "removed": 0,
+     "churnBucket": 0,
+     "range": {
+      "start": 1,
+      "end": 3
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    },
+    {
+     "id": "6f1791d38935",
+     "name": "keep",
+     "qual": "Store.keep",
+     "kind": "method",
+     "parent": "a55245bb58d2",
+     "status": "context",
+     "added": 0,
+     "removed": 0,
+     "churnBucket": 0,
+     "range": {
+      "start": 2,
+      "end": 3
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    }
+   ]
+  },
+  {
+   "id": "21b26b3dc8e1",
+   "path": "app/tax.py",
+   "oldPath": null,
+   "lang": "python",
+   "status": "added",
+   "added": 3,
+   "removed": 0,
+   "note": "",
+   "guardrails": [],
+   "hunks": [
+    {
+     "old": 0,
+     "new": 1,
+     "lines": [
+      "+def vat(amount):",
+      "+[redacted: possible secret]",
+      "+    return amount * 1.2"
+     ]
+    }
+   ],
+   "symbols": [
+    {
+     "id": "60922a0ae3db",
+     "name": "vat",
+     "qual": "vat",
+     "kind": "function",
+     "parent": null,
+     "status": "added",
+     "added": 3,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 1,
+      "end": 3
+     },
+     "findings": [],
+     "guardrails": [
+      "possible secret in added line 2"
+     ],
+     "degree": 2
+    }
+   ]
+  },
+  {
+   "id": "3f3ecf8ca0e7",
+   "path": "tests/test_billing.py",
+   "oldPath": null,
+   "lang": "python",
+   "status": "context",
+   "added": 0,
+   "removed": 0,
+   "note": "",
+   "guardrails": [],
+   "hunks": [],
+   "symbols": [
+    {
+     "id": "91de580dda70",
+     "name": "test_make",
+     "qual": "test_make",
+     "kind": "function",
+     "parent": null,
+     "status": "context",
+     "added": 0,
+     "removed": 0,
+     "churnBucket": 0,
+     "range": {
+      "start": 4,
+      "end": 5
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    }
+   ]
+  },
+  {
+   "id": "809851ea4d25",
+   "path": "web/http.ts",
+   "oldPath": null,
+   "lang": "typescript",
+   "status": "added",
+   "added": 3,
+   "removed": 0,
+   "note": "",
+   "guardrails": [],
+   "hunks": [
+    {
+     "old": 0,
+     "new": 1,
+     "lines": [
+      "+export function send(event: string, id: string) {",
+      "+  return fetch(\"/hook/\" + event + id);",
+      "+}"
+     ]
+    }
+   ],
+   "symbols": [
+    {
+     "id": "444a3af91221",
+     "name": "send",
+     "qual": "send",
+     "kind": "function",
+     "parent": null,
+     "status": "added",
+     "added": 3,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 1,
+      "end": 3
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 2
+    }
+   ]
+  },
+  {
+   "id": "b25ed21475c4",
+   "path": "web/notifier.ts",
+   "oldPath": null,
+   "lang": "typescript",
+   "status": "modified",
+   "added": 2,
+   "removed": 1,
+   "note": "",
+   "guardrails": [],
+   "hunks": [
+    {
+     "old": 1,
+     "new": 1,
+     "lines": [
+      " import { Booking } from \"./booking\";",
+      "+import { send } from \"./http\";",
+      " ",
+      " export class Notifier {",
+      "   emit(event: string, b: Booking) {",
+      "-    console.log(event, b.id);",
+      "+    send(event, b.id);",
+      "   }",
+      " }"
+     ]
+    }
+   ],
+   "symbols": [
+    {
+     "id": "7f2411582acc",
+     "name": "Module level",
+     "qual": "",
+     "kind": "module",
+     "parent": null,
+     "status": "modified",
+     "added": 1,
+     "removed": 0,
+     "churnBucket": 1,
+     "range": {
+      "start": 1,
+      "end": 9
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    },
+    {
+     "id": "c45e1ef2b10b",
+     "name": "Notifier",
+     "qual": "Notifier",
+     "kind": "class",
+     "parent": null,
+     "status": "modified",
+     "added": 1,
+     "removed": 1,
+     "churnBucket": 1,
+     "range": {
+      "start": 4,
+      "end": 8
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 0
+    },
+    {
+     "id": "c411674f8cc5",
+     "name": "emit",
+     "qual": "Notifier.emit",
+     "kind": "method",
+     "parent": "c45e1ef2b10b",
+     "status": "modified",
+     "added": 1,
+     "removed": 1,
+     "churnBucket": 1,
+     "range": {
+      "start": 5,
+      "end": 7
+     },
+     "findings": [],
+     "guardrails": [],
+     "degree": 1
+    }
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "3285b2373533",
+   "to": "cdcf44ec8a4a",
+   "kind": "calls",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "3285b2373533",
+   "to": "290bd73d505b",
+   "kind": "reads",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "a9e1c1710f01",
+   "to": "60922a0ae3db",
+   "kind": "imports",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "0ef52c8896a3",
+   "to": "686e7845fd32",
+   "kind": "writes",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "0ef52c8896a3",
+   "to": "60922a0ae3db",
+   "kind": "calls",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "0957da2b1933",
+   "to": "686e7845fd32",
+   "kind": "reads",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "0957da2b1933",
+   "to": "686e7845fd32",
+   "kind": "writes",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "5b6f7ffe0720",
+   "to": "f72b962b1f6b",
+   "kind": "calls",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "5b6f7ffe0720",
+   "to": "0957da2b1933",
+   "kind": "calls",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "5b6f7ffe0720",
+   "to": "a55245bb58d2",
+   "kind": "typeref",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "5b6f7ffe0720",
+   "to": "6f1791d38935",
+   "kind": "calls",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "37ec04a17f5d",
+   "to": "5b6f7ffe0720",
+   "kind": "calls",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "91de580dda70",
+   "to": "5b6f7ffe0720",
+   "kind": "tests",
+   "weight": 1,
+   "status": "kept"
+  },
+  {
+   "from": "7f2411582acc",
+   "to": "444a3af91221",
+   "kind": "imports",
+   "weight": 1,
+   "status": "added"
+  },
+  {
+   "from": "c411674f8cc5",
+   "to": "444a3af91221",
+   "kind": "calls",
+   "weight": 1,
+   "status": "added"
+  }
+ ],
+ "groups": [
+  {
+   "id": "60ea45f7bfba",
+   "label": "Billing",
+   "fileIds": [
+    "d83d470c17ce"
+   ]
+  },
+  {
+   "id": "e6af13627e7d",
+   "label": "app",
+   "fileIds": [
+    "4500a4b4ba7f",
+    "48125de62665",
+    "a9266901f918",
+    "21b26b3dc8e1"
+   ]
+  },
+  {
+   "id": "fbf1d6d07d24",
+   "label": "tests",
+   "fileIds": [
+    "3f3ecf8ca0e7"
+   ]
+  },
+  {
+   "id": "7190501487fa",
+   "label": "web",
+   "fileIds": [
+    "809851ea4d25",
+    "b25ed21475c4"
+   ]
+  }
+ ],
+ "guardrails": [],
+ "findings": []
+}

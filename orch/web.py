@@ -16,6 +16,7 @@ from .events import STREAMS
 from .safe import clean
 from .view import NOW, PHASE_IDX, STAGES, _json, load_events, reviewer_status, stage_status
 from .web_ais import AisApi
+from .web_graph import GraphApi
 from .web_settings import SettingsApi
 from .webcore import ANSI, ID, Bad, find_route, route
 
@@ -24,7 +25,7 @@ MAX_BODY = 64 * 1024
 ASSETS = {"/app.js": "text/javascript", "/style.css": "text/css"}
 
 
-class App(AisApi, SettingsApi):
+class App(AisApi, SettingsApi, GraphApi):
     """The API, independent of HTTP so it is easy to test. Every method returns JSON-able data or raises Bad."""
 
     def __init__(self, project, base, runner):
@@ -203,7 +204,7 @@ class App(AisApi, SettingsApi):
         if found is None:
             raise Bad("not found", 404)
         name, takes, tail = found
-        args = {None: (), "body": (body,), "card": ((query or {}).get("card"),), "tail": (tail,)}[takes]
+        args = {None: (), "body": (body,), "card": ((query or {}).get("card"),), "tail": (tail,), "tailq": (tail, query or {})}[takes]
         return getattr(self, name)(*args)
 
 

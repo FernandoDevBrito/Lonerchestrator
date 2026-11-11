@@ -41,6 +41,8 @@ DEFAULTS = {
         "forbid_test_deletion": True,
     },
     "rate_limit": {"max_waits": 8, "base_seconds": 60, "cap_seconds": 1800},
+    # change graph of every attempt (graph.py): a view of the diff, it never approves or blocks anything
+    "graph": {"enabled": True, "review_summary": False},     # review_summary = reviewers also read a short graph summary
 }
 
 

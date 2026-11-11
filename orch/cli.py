@@ -1,4 +1,4 @@
-"""lonerchestrator init | new | run | live | tui | intro | tail | status"""
+"""lonerchestrator init | new | run | live | tui | intro | tail | status | graph"""
 import argparse
 import json
 import os
@@ -11,7 +11,7 @@ from pathlib import Path
 from . import __version__, aisetup, checks, config, term, trust
 from . import answer as answers
 from .agents import Runner
-from .board import AREAS, Board, create_card
+from .board import AREAS, STATES, Board, create_card
 from .events import Log
 from .gitops import Git
 from .intro import configured, run_intro
@@ -292,6 +292,121 @@ def cmd_status(a, project):
     return 0
 
 
+def _csv(v):
+    return tuple(x.strip() for x in (v or "").split(",") if x.strip())
+
+
+def cmd_graph(a, project):
+    """The change graph of a card: the symbols its diff changed and what uses them or is used by them. Only reads (docs/change-graph.md)."""
+    from . import graph, graphview
+    cfg = config.load(project)
+    ids = sorted({c.id for s in STATES for c in Board(project).cards(s)})
+    hits = [i for i in ids if i == a.card] or [i for i in ids if i.startswith(a.card)] or ([a.card] if graph.snapshots(project, a.card) else [])
+    if len(hits) != 1:
+        print(f"No single card matches '{clean(a.card)}'" + (f": {', '.join(hits)}" if hits else "") + ". Give its id or number, e.g. 002.")
+        return 1
+    cid, snaps = hits[0], graph.snapshots(project, hits[0])
+
+    def attempt(n):
+        keys = [s["key"] for s in snaps if s["attempt"] == n]
+        return keys[-1] if keys else None
+    tried = ", ".join(sorted({str(s["attempt"]) for s in snaps})) or "none"
+    if a.compare:
+        x, _, y = a.compare.partition("..")
+        if not (x.isdigit() and y.isdigit() and attempt(int(x)) and attempt(int(y))):
+            print(f"--compare takes two attempts that have a graph, e.g. 1..2 (attempts with a graph: {tried})")
+            return 1
+        model = graph.compare(graph.read(project, cid, attempt(int(x))), graph.read(project, cid, attempt(int(y))))
+    else:
+        if a.attempt and not attempt(a.attempt):
+            print(f"{cid} has no graph for attempt {a.attempt} (attempts with a graph: {tried})")
+            return 1
+        model, _ = graph.load(project, cid, a.base or cfg["base"], cfg["guardrails"], attempt(a.attempt) if a.attempt else None)
+    if model is None:
+        print(f"{cid} has no change to show yet: no attempt saved a graph, and there is no card/{cid} branch or merge commit.")
+        return 1
+    model = graph.view(model, only=_csv(a.only), hide=_csv(a.hide), findings=a.findings, guardrails=a.guardrails, focus=a.focus or "", depth=a.depth)
+    if a.focus and not model["files"]:
+        print(f"nothing called '{clean(a.focus)}' in the graph of {cid}")
+        return 1
+    if a.tui:
+        return _graph_tui(model)
+    tty = sys.stdout.isatty() and not a.out
+    plain = a.ascii or os.environ.get("TERM") == "dumb"
+    width = shutil.get_terminal_size((80, 24)).columns if tty else 80
+    if a.format == "ascii" and not a.focus and model["stats"]["symbols"] > 12:
+        print("--format ascii draws one symbol and its neighbours: add --focus <name> (or use the tree, the default)")
+        return 1
+    fmt = {"tree": lambda m: graphview.tree(m, color=tty and not os.environ.get("NO_COLOR"), ascii_only=plain, width=width),
+           "ascii": lambda m: "\n\n".join(graphview.ego(m, sid, ascii_only=plain, width=width) for sid in
+                                          ([a.focus] if a.focus else [s["id"] for f in m["files"] for s in f["symbols"] if s["status"] != "context"])),
+           # printed JSON escapes every non-ASCII character (\uXXXX, still the same data): a file name can hold bidi or C1 controls
+           "json": lambda m: json.dumps(m, indent=2, ensure_ascii=not a.out), "mermaid": graphview.mermaid, "dot": graphview.dot, "svg": graphview.svg}
+    text = fmt[a.format](model)
+    if a.out:
+        Path(a.out).write_text(text + "\n", encoding="utf-8")
+        print(f"wrote {a.out} ({a.format}, {model['stats']['symbols']} symbols)")
+    else:
+        print(text)
+    return 0
+
+
+def _graph_tui(model):
+    """Browse a change graph with the keyboard (graphview.frame draws it): j/k, Enter = the symbol's diff, space folds a file,
+    f = only its neighbourhood, / = search, Esc = clear, q = quit."""
+    from . import graph, graphview
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):             # both: on Windows, stdin from NUL says it is a terminal
+        print("--tui needs a terminal; leave it out to print the tree")
+        return 1
+    st = {"cur": 0, "open": set(), "fold": set(), "focus": "", "query": "", "typing": None}
+    out = sys.stdout
+    out.write("\x1b[?1049h\x1b[?25l")
+    try:
+        with term.RawTerminal():
+            while True:
+                shown = graph.view(model, focus=st["focus"], query=st["query"]) if st["focus"] or st["query"] else model
+                sz = shutil.get_terminal_size((100, 30))
+                out.write("\x1b[H\x1b[2J" + graphview.frame(shown, st, sz.columns, sz.lines, color=not os.environ.get("NO_COLOR")))
+                out.flush()
+                keys = []
+                while not keys:
+                    time.sleep(0.04)
+                    keys = term.read_keys()
+                rows = graphview.visible(shown, st)
+                for k in keys:
+                    if st["typing"] is not None:                        # typing a search: Enter applies, Esc drops it
+                        if k in ("\r", "\n"):
+                            st.update(query=st["typing"], typing=None, cur=0)
+                        elif k == "\x1b":
+                            st["typing"] = None
+                        elif k in ("\x7f", "\x08"):
+                            st["typing"] = st["typing"][:-1]
+                        elif len(k) == 1 and k.isprintable():
+                            st["typing"] += k
+                        continue
+                    row = rows[st["cur"]] if rows else (0, None, None)
+                    if k in ("q", "\x03"):
+                        return 0
+                    st["cur"] += {"j": 1, "down": 1, "k": -1, "up": -1, "pgdn": sz.lines - 4, "pgup": 4 - sz.lines}.get(k, 0)
+                    if k in ("\r", "\n") and row[2] is not None:
+                        st["open"] ^= {row[2]["id"]}
+                    elif k in ("\r", "\n", " ") and row[1] is not None:
+                        st["fold"] ^= {row[1]["id"]}
+                    elif k == "f" and row[2] is not None:
+                        st.update(focus=row[2]["id"], cur=0)
+                    elif k == "/":
+                        st["typing"] = ""
+                    elif k == "\x1b":
+                        st.update(focus="", query="", cur=0)
+                    elif k in ("g", "G"):
+                        st["cur"] = 0 if k == "g" else len(rows) - 1
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        out.write("\x1b[?25h\x1b[?1049l")
+        out.flush()
+
+
 # Every command, spelled out: `lonerchestrator <name>` runs COMMANDS[name](args, project). A test keeps this in step with the cmd_* functions.
 COMMANDS = {
     "init": cmd_init,
@@ -308,6 +423,7 @@ COMMANDS = {
     "live": cmd_live,
     "tail": cmd_tail,
     "status": cmd_status,
+    "graph": cmd_graph,
 }
 
 
@@ -357,6 +473,21 @@ def main(argv=None):
     p.add_argument("--yes", action="store_true", help="run the official installers without asking first")
     sub.add_parser("status")
     sub.add_parser("doctor", help="check this machine (and the project here): what is installed, what is missing, how to fix it")
+    p = sub.add_parser("graph", help="a card's change graph: the symbols it changed and what uses them (tree, ascii, json, mermaid, dot, svg)")
+    p.add_argument("card", help="card id or its number, e.g. 002")
+    p.add_argument("--attempt", type=int, metavar="N", help="the graph of attempt N (default: the latest)")
+    p.add_argument("--format", default="tree", choices=["tree", "ascii", "json", "mermaid", "dot", "svg"])
+    p.add_argument("--focus", metavar="NAME", help="only this symbol (or file path) and its neighbours")
+    p.add_argument("--depth", type=int, default=1, metavar="N", help="with --focus: how many edges away (default 1)")
+    p.add_argument("--only", metavar="STATUSES", help="e.g. added,modified (also: removed, context)")
+    p.add_argument("--hide", metavar="WHAT", help="context and/or tests, e.g. context,tests")
+    p.add_argument("--findings", action="store_true", help="only symbols a reviewer flagged")
+    p.add_argument("--guardrails", action="store_true", help="only symbols and files with a guardrail hit")
+    p.add_argument("--compare", metavar="A..B", help="what changed between two attempts, e.g. 1..2")
+    p.add_argument("--out", metavar="FILE", help="write to a file instead of the terminal")
+    p.add_argument("--ascii", action="store_true", help="plain characters only (no box drawing)")
+    p.add_argument("--tui", action="store_true", help="browse it with the keyboard")
+    p.add_argument("--base")
     a = ap.parse_args(argv)
     if a.cmd is None:                       # bare `lonerchestrator` = open the TUI for this folder
         a = ap.parse_args(["-C", a.project, "live"])

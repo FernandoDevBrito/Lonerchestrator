@@ -4,6 +4,9 @@
 
 First public version.
 
+- Change graph: a card's diff as the functions, classes and files it changed and what uses them or is used by them (Python exactly through `ast`; JavaScript, TypeScript, C#, Java, Kotlin, Swift, Go, Rust and PHP by outline), with hotspots, renames, guardrail hits and reviewer findings on the symbol they point at. Every attempt saves one (`graph<n>.json` with the run's artifacts, plus each reviewer's output); `lonerchestrator graph <card>` prints a tree, one symbol's neighbourhood, JSON, Mermaid, DOT or SVG, compares attempts (`--compare 1..2`) and browses with the keyboard (`--tui`); the web page has a *Change graph* view (button, key `g`, `?graph=<card>`) with pan and zoom, filters, focus, a side panel with the symbol's diff, a list view and exports. A view only: it never approves or blocks, and it reads git, never runs the project's code. New settings `graph.enabled` (on) and `graph.review_summary` (off: reviewers can also read a summary computed from the diff). See `docs/change-graph.md`.
+- Guardrails: a possible secret is now reported as `possible secret in added line: <path>:<line>` (never the line itself, as before), and an added line that starts with `++` is scanned too.
+
 - The agents study your project: when `context/project.md` is empty, the first run (or `lonerchestrator context`, or a web button) gathers facts from the repository (languages, manifests, scripts, CI, README, commits; never secrets) and has the `suggester` AI write it, falling back to the facts as they are. Never overwrites a file with content.
 
 - Usage for every AI: tokens read from what each CLI prints (configurable `usage`/`strip_after` per provider), an estimate marked `~` when it prints none, rolling 5h/day/week windows, your own `budgets` (tokens, calls or USD per window, with bars and reset time) and a `price` per provider for estimated cost.

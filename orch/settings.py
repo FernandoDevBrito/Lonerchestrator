@@ -30,6 +30,10 @@ SPEC = [
      "Off shows only tool actions and the result line. The full text is always saved in the run folder."),
     ("git_hooks", "Run my git hooks", "bool", None, "",
      "On: your git hooks run on the orchestrator's commits. Off is safer: an agent could plant a hook."),
+    ("graph.enabled", "Change graph", "bool", None, "",
+     "Draws each attempt's diff as a graph of the changed functions and classes (Graph button, `lonerchestrator graph`). It only reads git and never stops a card."),
+    ("graph.review_summary", "Reviewers read the graph", "bool", None, "",
+     "Reviewers also read a short summary of the change graph. It is computed from the diff, so they still never see the builder's reasoning."),
 ]
 KEYS = [s[0] for s in SPEC]
 

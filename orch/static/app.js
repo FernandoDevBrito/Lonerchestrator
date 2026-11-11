@@ -12,7 +12,7 @@ const STATES_ALL = ["backlog", "doing", "review", "blocked", "done"];
 const COLS = [["backlog", "Backlog"], ["doing", "In progress"], ["review", "Review"], ["blocked", "Needs you"], ["done", "Done"]];
 const $ = id => document.getElementById(id);
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const LINK = new URLSearchParams(location.search);              // deep links: ?tab=Flow  ?open=<card id>  ?card=<card id for Flow>  ?new=1&text=...
+const LINK = new URLSearchParams(location.search);              // deep links: ?tab=Flow  ?open=<card id>  ?card=<card id for Flow>  ?new=1&text=...  ?graph=<card id>
 let filt = {q: "", area: ""}, S = null;
 let tab = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"].includes(LINK.get("tab")) ? LINK.get("tab") : "Board", shown = null, open = null, plannerId = null, flowCard = LINK.get("card"), picked = {}, dragging = null, busy = false, again = false, dropped = false;
 
@@ -134,6 +134,8 @@ function renderTabs() {
 async function detail(id) {
   const c = await api("/api/card/" + encodeURIComponent(id));
   const kids = [h("h3", {}, c.title), h("div", {class: "meta"}, [c.id, c.state, c.area, c.phase].filter(Boolean).map(t => h("span", {}, t))),
+    c.state !== "backlog" ? h("div", {class: "row", key: "graph"}, h("button", {onclick: () => openGraph(c.id), title: "g"}, "Change graph"),
+      h("span", {class: "ev"}, "what it changed, symbol by symbol, and what that touches")) : null,
     h("h4", {}, "Goal"), h("p", {}, c.goal || "No goal written"), h("h4", {}, "Acceptance criteria"), list(c.criteria, true)];
   if (c.moves.length) kids.push(h("div", {class: "row"}, h("span", {class: "ev"}, "Move to:"),
     c.moves.map(to => h("button", {key: "mv" + to, onclick: () => act("/api/move", {id: c.id, to}, r => { if (r.unanswered) toast("Moved to the backlog, but its questions are still unanswered"); closeDrawer(); refresh(true); })},
@@ -359,6 +361,278 @@ async function renderSettings() {
   return h("div", {class: "grid two", style: "grid-template-columns:minmax(300px,1fr) minmax(300px,1fr)"}, checks, h("div", {class: "box", key: "s"}, h("h2", {class: "t"}, "Settings"), rows));
 }
 
+// ---------------------------------------------------------------- Change graph: one card's diff as the symbols it changed and what uses them
+// A full-screen <dialog>. The server sends the model (graph.py) already filtered and laid out (graphview.layout); the page only draws it,
+// SVG element by SVG element. Every name in it comes from the repository, so it only ever becomes text, never markup.
+const gb = $("graph"), SVGNS = "http://www.w3.org/2000/svg";
+const G = {cid: null, d: null, idx: new Map(), rows: new Map(), edges: [], lines: {}, seq: 0, busy: false, err: "", msg: "", menu: "",
+  snap: "", cmp: "", only: [], tests: false, findings: false, guardrails: false, focus: "", depth: 1, q: "", sel: "", list: false, fold: new Set()};
+const Z = {x: 20, y: 20, k: 1, fit: true};
+const SHOW = {added: "added", modified: "modified", removed: "removed", context: "unchanged neighbour"};
+const MARK = {added: "+", modified: "~", removed: "-", context: "."};
+const FILE_LETTER = {added: "A", removed: "D", modified: "M", renamed: "R"};
+function sv(tag, attrs, ...kids) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, v);
+  for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return e;
+}
+const cut = (t, n) => t.length > n ? t.slice(0, n - 1) + "…" : t;
+const snapName = s => "attempt " + s.attempt + ", run " + s.run.slice(4, 6) + "/" + s.run.slice(6, 8) + " " + s.run.slice(9, 11) + ":" + s.run.slice(11, 13);
+const statLine = st => [["files", "file"], ["symbols", "symbol"], ["changes", "change"], ["hotspots", "hotspot"], ["findings", "finding"]].map(([k, w]) => st[k] + " " + (st[k] === 1 ? w : w + "s")).join(", ");
+const symName = id => { const x = G.idx.get(id); return !x ? id : x.s.kind === "module" ? x.f.path : x.s.qual || x.s.name; };
+function gparams(extra) {
+  const p = new URLSearchParams(), put = (k, v) => { if (v) p.set(k, v); };
+  put("snap", G.snap); put("compare", G.cmp && G.cmp + ".." + (G.snap || (G.d && G.d.key) || ""));
+  put("only", G.only.join(",")); put("hide", G.tests && "tests"); put("findings", G.findings && "1"); put("guardrails", G.guardrails && "1");
+  put("focus", G.focus); put("depth", G.focus && G.depth > 1 && String(G.depth)); put("q", G.q); put("fold", [...G.fold].join(","));
+  for (const [k, v] of Object.entries(extra || {})) put(k, v);
+  return p;
+}
+const gurl = extra => "/api/graph/" + encodeURIComponent(G.cid) + "?" + gparams(extra);
+const ghash = () => gparams({graph: G.cid, sel: G.sel, view: G.list && "list"}).toString();
+function syncHash() {                                               // the address bar is always a link to this exact view
+  if (!G.cid) return;
+  const u = new URL(location.href); u.hash = ghash(); history.replaceState(null, "", u);
+}
+function openGraph(cid, state) {
+  const p = new URLSearchParams(state || "");
+  Object.assign(G, {cid, d: null, err: "", msg: "", menu: "", lines: {}, snap: p.get("snap") || "", cmp: (p.get("compare") || "").split("..")[0],
+    only: (p.get("only") || "").split(",").filter(k => k in SHOW), tests: p.get("hide") === "tests", findings: p.get("findings") === "1", guardrails: p.get("guardrails") === "1",
+    focus: p.get("focus") || "", depth: Math.min(Math.max(+p.get("depth") || 1, 1), 3), q: p.get("q") || "", sel: p.get("sel") || "", list: p.get("view") === "list",
+    fold: new Set((p.get("fold") || "").split(",").filter(Boolean))});
+  Z.fit = true;
+  if (!gb.open) gb.showModal();
+  loadGraph();
+}
+async function loadGraph() {
+  const n = ++G.seq;
+  G.busy = true; drawHead(); if (!G.d) drawMain();
+  try {
+    const d = await api(gurl());
+    if (n !== G.seq) return;                                      // a newer request (another filter) is on its way
+    G.d = d; G.err = "";
+  } catch (e) { if (n !== G.seq) return; G.err = e.message; }
+  G.busy = false;
+  const m = G.d && G.d.model;
+  G.idx = new Map(m ? m.files.flatMap(f => f.symbols.map(s => [s.id, {f, s}])) : []);
+  if (!G.idx.has(G.sel)) G.sel = "";
+  drawHead(); drawSide(); drawMain(); drawFoot(); syncHash();          // the side panel first: the canvas is fitted to what is left
+}
+function gsay(msg) {
+  G.msg = msg; drawHead();
+  clearTimeout(gsay.t); gsay.t = setTimeout(() => { G.msg = ""; if (gb.open) drawHead(); }, 3500);
+}
+function toggleOnly(k, keep) {
+  const cur = new Set(G.only.length ? G.only : Object.keys(SHOW));
+  if (keep) cur.add(k); else cur.delete(k);
+  if (!cur.size) return gsay("Keep at least one kind of change");
+  G.only = cur.size === 4 ? [] : Object.keys(SHOW).filter(x => cur.has(x));
+  loadGraph();
+}
+function clearFilters() { Object.assign(G, {only: [], tests: false, findings: false, guardrails: false, focus: "", q: ""}); Z.fit = true; loadGraph(); }
+function setList(v) { G.list = v; drawHead(); drawMain(); syncHash(); }
+function toggleFold(fid) { if (G.fold.has(fid)) G.fold.delete(fid); else G.fold.add(fid); loadGraph(); }
+
+function drawHead() {
+  const d = G.d, snaps = d ? d.snapshots : [], cur = G.snap || (d && d.key) || "", nf = (G.only.length ? 1 : 0) + G.tests + G.findings + G.guardrails;
+  const box = (k, label, checked, fn) => h("label", {class: "chk", key: k}, h("input", {type: "checkbox", checked, onchange: ev => fn(ev.target.checked)}), label);
+  const menu = (k, label, badge, kids) => h("details", {class: "gmenu", key: k, open: G.menu === k,
+    ontoggle: ev => { if (ev.currentTarget.open && G.menu !== k) { G.menu = k; drawHead(); } else if (!ev.currentTarget.open && G.menu === k) G.menu = ""; }},
+    h("summary", {}, label, badge ? h("span", {class: "badge"}, String(badge)) : null), h("div", {class: "gpop"}, kids));
+  const src = d && d.model && !snaps.length ? (d.model.snapshot || {}).source : "";
+  morphInto($("ghead"), [
+    h("div", {class: "gtitle", key: "t"}, h("b", {}, "Change graph"), d ? h("span", {class: "ev", title: d.title}, "#" + (num(d.card) || d.card) + " " + d.title) : null),
+    snaps.length ? h("select", {key: "snap", ariaLabel: "Attempt to show", onchange: ev => { G.snap = ev.target.value; G.cmp = ""; Z.fit = true; loadGraph(); }},
+      snaps.slice().reverse().map(s => h("option", {value: s.key, selected: s.key === cur, key: s.key}, snapName(s))))
+      : src ? h("span", {class: "chip", key: "src", title: "No attempt saved a graph yet, so it is read from git"}, src === "merge" ? "from the merge commit" : "from card/" + d.card) : null,
+    snaps.length > 1 ? h("select", {key: "cmp", ariaLabel: "Compare with an earlier attempt", onchange: ev => { G.cmp = ev.target.value; loadGraph(); }},
+      h("option", {value: "", key: "-"}, "compare: off"), snaps.filter(s => s.key !== cur).reverse().map(s => h("option", {value: s.key, selected: s.key === G.cmp, key: s.key}, "compare with " + snapName(s)))) : null,
+    ...(!(d && d.model) ? [] : [                                     // nothing to filter, search or export until there is a graph
+    menu("view", "View", nf, [h("div", {class: "ev", key: "h1"}, "Show"), ...Object.entries(SHOW).map(([k, label]) => box(k, label, !G.only.length || G.only.includes(k), v => toggleOnly(k, v))),
+      box("tests", "tests", !G.tests, v => { G.tests = !v; loadGraph(); }), h("div", {class: "ev", key: "h2"}, "Only symbols with"),
+      box("findings", "reviewer findings", G.findings, v => { G.findings = v; loadGraph(); }), box("guardrails", "guardrail hits", G.guardrails, v => { G.guardrails = v; loadGraph(); }),
+      G.focus ? h("label", {class: "chk", key: "depth"}, "Around the focus", h("select", {style: "width:auto", onchange: ev => { G.depth = +ev.target.value; loadGraph(); }},
+        [1, 2, 3].map(n => h("option", {value: n, selected: n === G.depth, key: "d" + n}, n + (n === 1 ? " step" : " steps"))))) : null,
+      nf ? h("button", {key: "clear", onclick: clearFilters}, "Clear filters") : null]),
+    h("input", {type: "search", id: "gq", key: "q", value: G.q, placeholder: "Search symbols   ( / )", ariaLabel: "Search symbols and files", autocomplete: "off",
+      oninput: ev => { G.q = ev.target.value.trim(); clearTimeout(G.qt); G.qt = setTimeout(loadGraph, 250); }}),
+    G.focus ? h("button", {class: "chip run", key: "focus", title: "Show everything again", onclick: () => { G.focus = ""; Z.fit = true; loadGraph(); }}, "focus: " + cut(symName(G.focus), 30) + "  ×") : null,
+    h("div", {class: "seg", key: "mode", role: "group", ariaLabel: "Show as"}, h("button", {ariaPressed: String(!G.list), onclick: () => setList(false)}, "Graph"),
+      h("button", {ariaPressed: String(G.list), onclick: () => setList(true), title: "l"}, "List")),
+    menu("export", "Export", 0, [["svg", "SVG image"], ["mermaid", "Mermaid"], ["dot", "Graphviz DOT"], ["json", "JSON model"]].map(([f, label]) => h("button", {key: f, onclick: () => exportAs(f)}, label))),
+    h("button", {key: "link", onclick: copyLink, title: "Copy a link to this exact view"}, "Copy link")]),
+    h("span", {class: "ev gmsg", key: "msg", role: "status"}, G.busy ? "Loading…" : G.err && G.d ? G.err : G.msg),
+    h("button", {class: "quiet", key: "x", onclick: () => gb.close(), title: "Esc"}, "Close")], false);
+}
+function drawMain() {
+  const d = G.d, m = d && d.model, main = $("gmain");
+  G.rows = new Map(); G.edges = [];
+  const state = (title, text, ...acts) => main.replaceChildren(h("div", {class: "empty gempty"}, h("b", {}, title), text, acts.length ? h("div", {class: "row"}, acts) : null));
+  if (!d && G.err) return state("Could not load the graph", G.err, h("button", {onclick: loadGraph}, "Try again"), h("button", {onclick: () => openGraph(G.cid)}, "Reset the view"));
+  if (!d) return main.replaceChildren(h("div", {class: "gskel", ariaLabel: "Loading"}, [0, 1, 2].map(() => h("div", {class: "sk"}))));
+  if (!m) return state("No change to show yet", "No attempt of this card saved a graph, and there is no card/" + d.card + " branch or merge commit to read one from. It appears after the first build.");
+  if (!m.files.length) return state("Nothing matches", "No symbol passes these filters" + (G.q ? " and this search" : "") + ".", h("button", {onclick: clearFilters}, "Clear filters"));
+  if (G.list || d.too_big) return main.replaceChildren(...[d.too_big ? h("p", {class: "gnote"}, m.stats.symbols + " symbols are too many to draw (the limit is " + d.max + "). Narrow it with View, a search or a focus; this list has all of them.") : null, gList(m)].filter(Boolean));
+  main.replaceChildren(gCanvas(d, m), h("div", {class: "gzoom"}, h("button", {title: "Zoom in (+)", ariaLabel: "Zoom in", onclick: () => zoomBy(1.25)}, "+"),
+    h("button", {title: "Zoom out (-)", ariaLabel: "Zoom out", onclick: () => zoomBy(.8)}, "-"), h("button", {title: "Fit (f)", onclick: fitZ}, "Fit")));
+  if (Z.fit) { Z.fit = false; fitZ(); } else applyZ();
+  markSel();
+}
+function gCanvas(d, m) {
+  const L = d.layout, pan = sv("g", {class: "gpan"});
+  const svg = sv("svg", {class: "gsvg", role: "img", "aria-label": "Change graph: " + statLine(m.stats) + ". The List view has the same content as text."},
+    sv("defs", {}, sv("pattern", {id: "gdots", width: 16, height: 16, patternUnits: "userSpaceOnUse"}, sv("circle", {cx: 1, cy: 1, r: 1, class: "gdot"})),
+      sv("marker", {id: "garrow", viewBox: "0 0 8 8", refX: 8, refY: 4, markerWidth: 6, markerHeight: 6, orient: "auto"}, sv("path", {d: "M0,0L8,4L0,8z", class: "garrow"}))), pan);
+  pan.append(sv("rect", {x: -4000, y: -4000, width: L.width + 8000, height: L.height + 8000, fill: "url(#gdots)"}));
+  const info = new Map(m.edges.map(e => [e.from + ">" + e.to, e]));
+  for (const le of L.edges) {
+    const e = info.get(le.from + ">" + le.to) || {kind: "", status: "kept", weight: 1};
+    const p = sv("path", {d: le.d, class: "ge " + e.status + (e.delta ? " d-" + e.delta : ""), "stroke-width": (1 + Math.log2(e.weight || 1)).toFixed(1), "marker-end": "url(#garrow)"},
+      sv("title", {}, symName(le.from) + " " + e.kind + " " + symName(le.to) + (e.status === "kept" ? "" : " (" + e.status + " by this change)")));
+    p._ends = [le.from, le.to]; G.edges.push(p); pan.append(p);
+  }
+  for (const f of m.files) {
+    const b = L.files[f.id];
+    if (!b) continue;
+    const hits = f.guardrails.length + f.symbols.reduce((a, s) => a + s.guardrails.length, 0), dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : ".";
+    const head = sv("g", {class: "ghd", tabindex: 0, role: "button", "aria-label": (b.collapsed ? "Unfold " : "Fold ") + f.path},
+      sv("rect", {class: "ghit", x: b.x, y: b.y, width: L.w, height: L.head}),
+      sv("text", {class: "gname", x: b.x + 10, y: b.y + 19}, cut(f.path.split("/").pop(), 32)),
+      sv("text", {class: "gst " + f.status, x: b.x + L.w - 10, y: b.y + 19, "text-anchor": "end"}, FILE_LETTER[f.status] || ""),
+      sv("text", {class: "gdir", x: b.x + 10, y: b.y + 36}, cut(dir, 38)),
+      sv("title", {}, [f.path, f.status === "context" ? "unchanged, shown for its links" : f.status + " +" + f.added + " -" + f.removed, f.note, ...f.guardrails, "click to " + (b.collapsed ? "unfold" : "fold")].filter(Boolean).join("\n")));
+    on(head, "onclick", () => toggleFold(f.id));
+    on(head, "onkeydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleFold(f.id); } });
+    const g = sv("g", {class: "gfile"}, sv("rect", {class: "gbox" + (hits ? " hit" : ""), x: b.x, y: b.y, width: L.w, height: b.h, rx: 4}), head), dep = {};
+    if (!b.collapsed) for (const s of f.symbols) { dep[s.id] = s.parent in dep ? dep[s.parent] + 1 : 0; g.append(gRow(f, s, b.x, b.rows[s.id], dep[s.id], L)); }
+    pan.append(g);
+  }
+  let drag = null;                                                  // drag the empty canvas to pan, wheel to zoom where the pointer is
+  on(svg, "onpointerdown", ev => { if (ev.button || ev.target.closest(".grow,.ghd")) return; drag = {x: ev.clientX - Z.x, y: ev.clientY - Z.y, moved: 0}; svg.setPointerCapture(ev.pointerId); svg.classList.add("grab"); });
+  on(svg, "onpointermove", ev => { if (!drag) return; drag.moved += Math.abs(ev.movementX) + Math.abs(ev.movementY); Z.x = ev.clientX - drag.x; Z.y = ev.clientY - drag.y; applyZ(); });
+  on(svg, "onpointerup", () => { if (drag && drag.moved < 4 && G.sel) select(""); drag = null; svg.classList.remove("grab"); });
+  on(svg, "onwheel", ev => { ev.preventDefault(); const r = svg.getBoundingClientRect(); zoomAt(Z.k * Math.exp(-ev.deltaY * (ev.deltaMode ? .05 : .0015)), ev.clientX - r.left, ev.clientY - r.top); });
+  return svg;
+}
+function gRow(f, s, x0, cy, dep, L) {
+  const x = x0 + 10 + 12 * dep, n = s.findings.length;
+  const label = (s.kind === "module" ? "module level of " + f.path : s.kind + " " + (s.qual || s.name)) + ", " + SHOW[s.status] + ", +" + s.added + " -" + s.removed + (s.hotspot ? ", hotspot" : "") +
+    (n ? ", " + n + (n === 1 ? " reviewer finding" : " reviewer findings") : "") + (s.delta && s.delta !== "same" ? ", " + s.delta + " since the earlier attempt" : "");
+  const r = sv("g", {class: "grow " + s.status + (s.delta ? " d-" + s.delta : ""), tabindex: 0, role: "button", "aria-label": label},
+    sv("rect", {class: "ghit", x: x0 + 1, y: cy - L.row / 2, width: L.w - 2, height: L.row}),
+    s.hotspot ? sv("rect", {class: "ghot", x: x0 + 1, y: cy - L.row / 2 + 4, width: 3, height: L.row - 8}) : null,
+    sv("text", {class: "gst " + s.status, x, y: cy + 4}, MARK[s.status] || "."),
+    sv("text", {class: "gsym", x: x + 14, y: cy + 4}, cut(s.kind === "module" ? "Module level" : s.name, 26 - 2 * dep)),
+    n ? sv("text", {class: "gfind " + (s.findings.some(v => v.severity === "blocking") ? "block" : "note"), x: x0 + L.w - 60, y: cy + 4, "text-anchor": "end"}, "!" + (n > 1 ? n : "")) : null,
+    [0, 1, 2, 3, 4].map(i => sv("rect", {class: "gchurn" + (i < s.churnBucket ? " on" : ""), x: x0 + L.w - 52 + i * 8, y: cy - 3, width: 6, height: 6})),
+    sv("title", {}, label));
+  on(r, "onclick", () => select(s.id));
+  on(r, "onkeydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(s.id); } });
+  on(r, "onpointerenter", () => hover(s.id)); on(r, "onpointerleave", () => hover(""));
+  on(r, "onfocus", () => hover(s.id)); on(r, "onblur", () => hover(""));
+  G.rows.set(s.id, r);
+  return r;
+}
+function hover(sid) {                                               // light up a symbol, its edges and its neighbours; dim the rest
+  const svg = $("gmain").querySelector(".gsvg"), near = new Set(sid ? [sid] : []);
+  if (!svg) return;
+  for (const p of G.edges) { const hit = !!sid && p._ends.includes(sid); p.classList.toggle("hl", hit); if (hit) p._ends.forEach(x => near.add(x)); }
+  for (const [id, r] of G.rows) r.classList.toggle("hl", near.has(id));
+  svg.classList.toggle("hovering", !!sid);
+}
+function applyZ() {
+  const svg = $("gmain").querySelector(".gsvg");
+  if (!svg) return;
+  svg.querySelector(".gpan").setAttribute("transform", "translate(" + Z.x.toFixed(1) + "," + Z.y.toFixed(1) + ") scale(" + Z.k.toFixed(3) + ")");
+  svg.classList.toggle("far", Z.k < .55);                           // zoomed out: file boxes and change marks only
+}
+function zoomAt(k, cx, cy) { const k2 = Math.min(3, Math.max(.1, k)); Z.x = cx - (cx - Z.x) * k2 / Z.k; Z.y = cy - (cy - Z.y) * k2 / Z.k; Z.k = k2; applyZ(); }
+function zoomBy(f) { const r = $("gmain").getBoundingClientRect(); zoomAt(Z.k * f, r.width / 2, r.height / 2); }
+function fitZ() {                                                   // the whole graph, unless that makes the names unreadable: then its width
+  const L = G.d && G.d.layout, r = $("gmain").getBoundingClientRect();
+  if (!L || !r.width) return;
+  let k = Math.min(1, (r.width - 40) / L.width, (r.height - 40) / L.height);
+  if (k < .55) k = Math.min(1, Math.max(.55, (r.width - 40) / L.width));
+  Z.k = k; Z.x = Math.max(20, (r.width - L.width * k) / 2); Z.y = Math.max(20, (r.height - L.height * k) / 2); applyZ();
+}
+function select(sid) { G.sel = G.idx.has(sid) ? sid : ""; markSel(); drawSide(); syncHash(); }
+function markSel() {
+  for (const [id, r] of G.rows) r.classList.toggle("sel", id === G.sel);
+  $("gmain").querySelectorAll(".gitem").forEach(b => b.classList.toggle("on", b.dataset.k === G.sel));
+}
+function drawSide() {
+  const x = G.idx.get(G.sel), side = $("gside");
+  $("gbody").classList.toggle("withside", !!x);
+  if (!x) return side.replaceChildren();
+  const {f, s} = x, m = G.d.model, uses = m.edges.filter(e => e.from === s.id), users = m.edges.filter(e => e.to === s.id && e.from !== s.id);
+  const link = e => { const id = e.from === s.id ? e.to : e.from; return h("button", {class: "glink", onclick: () => select(id)}, symName(id),
+    h("span", {class: "ev"}, "  " + [e.kind, e.status !== "kept" && e.status + " by this change", e.delta && e.delta !== "same" && e.delta + " since the earlier attempt"].filter(Boolean).join(", "))); };
+  const none = () => h("p", {class: "ev"}, "Nothing in this view");
+  side.replaceChildren(h("div", {},                                // h() skips the empty parts and flattens the lists
+    h("div", {class: "row", style: "margin:0;justify-content:space-between"}, h("span", {class: "chip"}, s.kind), h("button", {class: "quiet", onclick: () => select(""), title: "Esc"}, "Close")),
+    h("h3", {}, s.kind === "module" ? f.path : s.qual || s.name),
+    h("div", {class: "meta"}, h("span", {}, f.path + ":" + s.range.start + (s.range.end > s.range.start ? "-" + s.range.end : "") + (s.range.side === "old" ? " (before the change)" : "")),
+      h("span", {class: "gst " + s.status}, SHOW[s.status]), h("span", {}, "+" + s.added + " -" + s.removed),
+      s.hotspot ? h("span", {class: "chip run", title: "Among the most connected changed symbols: a good place to start reviewing"}, "hotspot") : null,
+      s.delta && s.delta !== "same" ? h("span", {class: "chip"}, s.delta + " since the earlier attempt") : null),
+    s.from ? h("p", {class: "ev"}, "Renamed or moved from " + s.from.path + " " + s.from.qual) : s.moved ? h("p", {class: "ev"}, "Moved inside the file: its body did not change") : null,
+    h("div", {class: "row"}, h("button", {disabled: G.focus === s.id, onclick: () => { G.focus = s.id; Z.fit = true; loadGraph(); }}, "Focus here"), h("span", {class: "ev"}, "only it and what it is linked to")),
+    s.findings.length ? [h("h4", {}, "Reviewer findings"), s.findings.map(v => h("div", {class: "gfinding " + v.severity}, h("b", {}, v.reviewer + ", " + v.severity), " ", v.text))] : null,
+    s.guardrails.length ? [h("h4", {}, "Guardrails"), list(s.guardrails)] : null,
+    h("h4", {}, "Uses (" + uses.length + ")"), uses.length ? uses.map(link) : none(),
+    h("h4", {}, "Used by (" + users.length + ")"), users.length ? users.map(link) : none(),
+    h("h4", {}, "Diff"), h("div", {id: "glines"}, h("div", {class: "sk", style: "height:64px"}))));
+  showLines(s.id);
+}
+async function showLines(sid) {                                     // one symbol's lines, asked when it is opened: the page never holds the whole diff
+  const k = (G.d.key || "git") + "|" + G.cmp + "|" + sid;
+  if (!(k in G.lines)) { try { G.lines[k] = (await api(gurl({format: "lines", sym: sid}))).lines; } catch (e) { G.lines[k] = e.message; } }
+  const box = $("glines"), L = G.lines[k], pad = v => (v == null ? "" : String(v)).padStart(4);
+  if (!box || G.sel !== sid) return;
+  box.replaceChildren(typeof L === "string" ? h("p", {class: "ev"}, L) : !L.length ? h("p", {class: "ev"}, "No changed line inside it: it is here for what it uses or what uses it.")
+    : h("pre", {class: "gdiff"}, L.map(([o, n, t]) => h("span", {class: t[0] === "+" ? "a" : t[0] === "-" ? "r" : ""}, pad(o) + " " + pad(n) + "  " + t + "\n"))));
+}
+function gList(m) {
+  return h("div", {class: "glist"}, m.files.map(f => h("section", {key: f.id},
+    h("div", {class: "gfh"}, h("b", {class: "mono"}, f.path), h("span", {class: "gst " + f.status}, f.status === "context" ? "unchanged" : f.status),
+      f.status === "context" ? null : h("span", {class: "ev mono"}, "+" + f.added + " -" + f.removed), f.note ? h("span", {class: "ev"}, f.note) : null,
+      f.guardrails.map(g => h("span", {class: "chip fail"}, g))),
+    f.symbols.map(s => h("button", {class: "gitem" + (s.id === G.sel ? " on" : ""), key: s.id, onclick: () => select(s.id)},
+      h("span", {class: "gst " + s.status}, MARK[s.status] || "."), " ", s.kind === "module" ? "Module level" : s.qual || s.name,
+      h("span", {class: "ev"}, "  " + [s.kind, "+" + s.added + " -" + s.removed, s.hotspot && "hotspot", s.findings.length && s.findings.length + (s.findings.length === 1 ? " finding" : " findings"),
+        s.delta && s.delta !== "same" && s.delta].filter(Boolean).join(", ")))))));
+}
+function drawFoot() {
+  const d = G.d, m = d && d.model;
+  $("gfoot").replaceChildren(h("span", {class: "mono"}, m ? statLine(m.stats) + (d.total && d.total.symbols !== m.stats.symbols ? " shown, of " + d.total.symbols + " symbols" : "") : ""),
+    h("span", {class: "glegend"}, Object.keys(SHOW).map(k => h("span", {}, h("span", {class: "gst " + k}, MARK[k]), " " + SHOW[k])), h("span", {}, "arrow: from the user to what it uses"),
+      m && m.compare ? h("span", {}, "bold: new or changed since the earlier attempt; struck: gone") : null, h("span", {}, "drag, wheel, f fit, l list, / search, Esc back")));
+}
+async function exportAs(fmt) {
+  G.menu = ""; drawHead();
+  try {
+    const r = await api(gurl({format: fmt}));
+    const a = h("a", {href: URL.createObjectURL(new Blob([r.text + "\n"], {type: fmt === "svg" ? "image/svg+xml" : fmt === "json" ? "application/json" : "text/plain"})), download: r.name});
+    gb.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    gsay("Saved " + r.name);
+  } catch (e) { gsay(e.message); }
+}
+function copyLink() {
+  const u = new URL(location.href); u.search = "?t=" + encodeURIComponent(TOKEN) + "&graph=" + encodeURIComponent(G.cid); u.hash = ghash();
+  (navigator.clipboard ? navigator.clipboard.writeText(u.href) : Promise.reject()).then(() => gsay("Link copied: it opens this exact view on this computer"), () => gsay("Could not copy: use the address bar, it holds the same link"));
+}
+gb.addEventListener("keydown", ev => {
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (ev.key === "/") { ev.preventDefault(); $("gq").focus(); } else if (ev.key === "f") fitZ(); else if (ev.key === "+" || ev.key === "=") zoomBy(1.25);
+  else if (ev.key === "-") zoomBy(.8); else if (ev.key === "l") setList(!G.list);
+});
+gb.addEventListener("pointerdown", ev => { if (G.menu && !ev.target.closest(".gmenu")) { G.menu = ""; drawHead(); } });
+gb.addEventListener("cancel", ev => {                               // Esc: first the open menu, then the selection, then the view
+  if (G.menu) { ev.preventDefault(); G.menu = ""; drawHead(); } else if (G.sel) { ev.preventDefault(); select(""); }
+});
+gb.addEventListener("close", () => { G.cid = null; G.seq++; const u = new URL(location.href); u.searchParams.delete("graph"); u.hash = ""; history.replaceState(null, "", u); });
+
 // ---------------------------------------------------------------- refresh loop
 async function refresh() {
   if (dragging) return;
@@ -413,7 +687,9 @@ function showHelp() {
     h("p", {class: "ev"}, "You write a request in plain words. AIs plan it, build it, check it and review it; it is merged only when every reviewer approves. If anything is unclear, the card lands in Needs you with questions."),
     h("h4", {}, "The steps every card goes through"), steps(Object.entries(STAGE_HELP)),
     h("h4", {}, "Board columns"), steps([["Backlog", "Waiting its turn. Drag cards to set the order."], ["In progress", "An AI is working on it now."], ["Needs you", "Questions for you, or held by you. Answer them in the card."], ["Done", "Approved and merged."]]),
-    h("h4", {}, "Keys"), steps([["1 to 6", "switch tab"], ["n", "new request"], ["/", "filter cards"], ["t", "switch theme"], ["?", "this help"], ["Esc", "close a panel"]]));
+    h("h4", {}, "Keys"), steps([["1 to 6", "switch tab"], ["n", "new request"], ["/", "filter cards"], ["t", "switch theme"], ["g", "change graph of the open card"], ["?", "this help"], ["Esc", "close a panel"]]),
+    h("h4", {}, "Change graph"), steps([["What", "The functions, classes and files a card changed, and what they use or are used by. Hotspots are the most connected changes: start there."],
+      ["Keys", "drag to pan, wheel or + and - to zoom, f fit, l list, / search, Esc back"]]));
   hb.showModal();
 }
 $("helpbtn").onclick = showHelp;
@@ -438,6 +714,7 @@ renderAreas();
 $("q").oninput = e => { filt.q = e.target.value.trim().toLowerCase(); refresh(true); };
 
 document.addEventListener("keydown", e => {
+  if (gb.open) return;                                              // the change graph has its own keys (and Esc closes it, not the drawer)
   const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) || nb.open || hb.open;
   if (e.key === "Escape") { if (document.activeElement === $("q") && filt.q) { $("q").value = ""; filt.q = ""; refresh(true); } closeDrawer(); }
   else if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -445,6 +722,7 @@ document.addEventListener("keydown", e => {
   else if (e.key === "n") { e.preventDefault(); $("newbtn").click(); }
   else if (e.key === "/") { e.preventDefault(); if (!["Board", "Planner"].includes(tab)) go("Board"); $("q").focus(); }
   else if (e.key === "t") cycleTheme();
+  else if (e.key === "g" && open) openGraph(open);
   else if (e.key === "?") showHelp();
 });
 $("view").replaceChildren(h("div", {class: "grid board"}, [0, 1, 2, 3].map(i => h("div", {class: "col"}, h("div", {class: "sk", style: "height:14px;width:40%;margin:4px 4px 14px"}),
@@ -452,4 +730,6 @@ $("view").replaceChildren(h("div", {class: "grid board"}, [0, 1, 2, 3].map(i => 
 renderTabs(); refresh();
 if (!LINK.get("still")) setInterval(refresh, 1500);                // ?still=1 freezes the page after the first render (screenshots, demos)
 if (LINK.get("open")) setTimeout(() => openCard(LINK.get("open")), 700);
+const ghs = new URLSearchParams(location.hash.slice(1));           // ?graph=<card id>, plus the view in the #hash that Copy link writes
+if (ghs.get("graph") || LINK.get("graph")) openGraph(ghs.get("graph") || LINK.get("graph"), location.hash.slice(1));
 if (LINK.get("new")) { $("ntext").value = LINK.get("text") || ""; nb.showModal(); }

@@ -19,7 +19,7 @@ You are the QA evaluator. You did not write this code and you have not seen the 
 CRITERIA
 - [met|not met] <criterion>: <evidence, e.g. test name / command output excerpt>
 FAILURES
-- <specific, actionable failure>  (or "none")
+- <path>:<line> <specific, actionable failure>  (start with path:line whenever it is about code; or "none")
 VERDICT: APPROVED
 ```
 The final line is `VERDICT: APPROVED` only if every criterion is met, CI is green and there are no failures; otherwise `VERDICT: REJECTED`. Plain text, nothing after it.

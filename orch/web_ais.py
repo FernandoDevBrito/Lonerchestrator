@@ -1,7 +1,7 @@
 """The AIs tab of the web page: who is on, who does what, usage and budgets."""
 import threading
 
-from . import config, menu, providers, usage
+from . import config, folder, menu, providers, usage
 from .view import _json, load_events
 from .webcore import Bad, route
 
@@ -10,14 +10,14 @@ class AisApi:
     @route("GET", "/api/ais")
     def ais(self):
         cfg = config.load(self.project)
-        ais = _json(self.project / ".orchestrator" / "ais.json").get("ais", {})
+        ais = _json(folder.of(self.project) / "ais.json").get("ais", {})
         avail = menu.available(self.project)
         on = menu.enabled(self.project, avail)
         used = {}
         for s in menu.SLOTS:
             used.setdefault(menu.assigned(cfg, s), []).append(s)
         st, _ = load_events(self.project)
-        runs = sorted((self.project / ".orchestrator" / "runs").glob("*")) if (self.project / ".orchestrator" / "runs").exists() else []
+        runs = sorted((folder.of(self.project) / "runs").glob("*"))
         run_id = st.get("run") or (runs[-1].name if runs else None)
         reg = providers.registry(cfg)
         return {"ais": [{"id": c, "name": reg.get(c, {}).get("name") or v.get("name") or c, "installed": v.get("installed", False),

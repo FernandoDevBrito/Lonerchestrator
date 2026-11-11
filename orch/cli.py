@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, aisetup, checks, config, term, trust
+from . import __version__, aisetup, checks, config, folder, term, trust
 from . import answer as answers
 from .agents import Runner
 from .board import AREAS, STATES, Board, create_card
@@ -20,40 +20,23 @@ from .safe import clean
 from .tui import H, W, run_tui
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATES = Path(__file__).resolve().parent / "templates"   # shipped inside the package; "dot-" prefix = hidden dir (packaging)
-GITIGNORE = ["# orchestrator runtime state", "board/*/*.md", "board/_log.md", ".orchestrator/runs/", ".orchestrator/streams/",
-             ".orchestrator/state.json", ".orchestrator/ais.json", ".orchestrator/tui.size", ".orchestrator/run.out", "__pycache__/"]
 COLOR = {"pipeline": "37", "planner": "36", "builder": "33", "qa": "35", "cross": "34", "retro": "32"}
 
 
 def cmd_init(a, project):
-    for src in TEMPLATES.rglob("*"):
-        dst = project.joinpath(*[".claude" if part == "dot-claude" else part for part in src.relative_to(TEMPLATES).parts])
-        if src.is_dir():
-            continue
-        if dst.exists() and not a.force:
-            print(f"keep   {dst.relative_to(project)}")
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dst)
-        print(f"write  {dst.relative_to(project)}")
-    Board(project).ensure()
-    cfg = project / ".orchestrator" / "config.json"
-    if not cfg.exists():
-        cfg.parent.mkdir(exist_ok=True)
+    """Set up the project's folder (folder.py): the project itself gets nothing, no file, no commit, no .gitignore line."""
+    home = folder.install(project, force=a.force)
+    if not (home / "config.json").exists():
         git = Git(project)
         base = next((b for b in ("main", "master") if git.has_branch(b)), "main")
-        cfg.write_text(json.dumps({"base": base, "ci": "bash scripts/ci.sh"}, indent=2) + "\n", encoding="utf-8")
-        trust.trust(project, config.load(project))              # we wrote this command ourselves
-        print("write  .orchestrator/config.json")
-    gi = project / ".gitignore"
-    have = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
-    add = [ln for ln in GITIGNORE if ln not in have]
-    if add:
-        gi.write_text("\n".join(have + add) + "\n", encoding="utf-8")
+        config.write_raw(project, {"base": base})
+        trust.trust(project, config.load(project))              # the CI command is our own script
+        print("write  config.json")
+    print(f"\nThe orchestrator keeps everything of this project in {home}\n(cards, context, memory, agents, CI script, logs). Nothing was added to {project}.")
     if sys.stdin.isatty():
         run_intro(project)
-    print("\nnext: `lonerchestrator intro` (pick AIs/agents) if skipped, `lonerchestrator context` (the AI studies your repository and fills context/project.md), adjust scripts/ci.sh, then `lonerchestrator new \"title\"` and `lonerchestrator live`")
+    print(f"\nnext: `lonerchestrator intro` (pick AIs/agents) if skipped, `lonerchestrator context` (the AI studies your repository and fills "
+          f"context/project.md), adjust {(home / 'ci.sh').as_posix()} to your stack, then `lonerchestrator new \"title\"` and `lonerchestrator web`")
     return 0
 
 
@@ -105,7 +88,8 @@ def ensure_trust(project, cfg):
     """The project's `ci` command runs through a shell: it must be approved once (a cloned repo could ship any command)."""
     if trust.is_trusted(project, cfg):
         return True
-    print(f"\nThis project runs this command on your machine for every card:\n\n    {clean(cfg['ci'])}\n\n(from {project / '.orchestrator' / 'config.json'})")
+    home = folder.of(project)
+    print(f"\nThis project runs this command on your machine for every card:\n\n    {clean(folder.render(cfg['ci'], home, cfg))}\n\n(from {home / 'config.json'})")
     for pid, p in (cfg.get("providers") or {}).items():
         print(f"and it starts this AI program ('{clean(pid)}'): {clean(' '.join(map(str, p.get('cmd', []))))}")
     if not sys.stdin.isatty():
@@ -148,7 +132,7 @@ def cmd_doctor(a, project):
                             ("agy", False, "optional: Gemini models. `lonerchestrator ais` installs it"),
                             ("codex", False, "optional: OpenAI Codex. `lonerchestrator ais` installs it"),
                             ("gemini", False, "optional: Gemini CLI. `lonerchestrator ais` installs it"),
-                            ("bash", False, "runs the default CI script (scripts/ci.sh); on Windows it comes with Git for Windows")):
+                            ("bash", False, "runs the default CI script (ci.sh in the project's folder); on Windows it comes with Git for Windows")):
         found = term.real_bash() if exe == "bash" else shutil.which(exe)
         wsl = bool(found) and exe == "bash" and "windowsapps" in found.lower()          # only the WSL launcher: no usable bash
         line("ok" if found and not wsl else ("fail" if need else "warn"), f"{exe}" + (f"  ({found})" if found else " not found"),
@@ -157,8 +141,8 @@ def cmd_doctor(a, project):
     can = term.window_command(system, shutil.which, ["x"], "t", "/", W, H) is not None
     line("ok" if can else "warn", "can open its own window" if can else "cannot open its own window here",
          "" if can else f"`lonerchestrator live` needs a supported terminal; use `lonerchestrator tui` in a terminal of at least {W}x{H}")
-    if (project / "board").exists():
-        print(f"\n  project: {project}\n")
+    if folder.exists(project):
+        print(f"\n  project: {project}\n  its folder: {folder.of(project)}\n")
         for status, title, hint in checks.readiness(project):
             line(status, title, hint)
     else:
@@ -186,15 +170,27 @@ def cmd_run(a, project):
         return 0
     if not ensure_trust(project, cfg):
         return 1
-    if not Git(project).clean():
-        print("working tree not clean; commit or stash first")
+    git = Git(project, hooks=cfg.get("git_hooks", False))
+    if not git.has_branch(base):
+        unborn = not git.has_branch("HEAD")
+        print(f"branch '{base}' does not exist" + (" yet: make the first commit (Git tab of `lonerchestrator web`, or `git add -A` and `git commit`), then run again"
+                                                    if unborn else ": pick an existing one in Settings"))
         return 1
+    on = git.branch()
     if Board(project).cards("backlog"):                       # the agents read context/project.md before every card: study the repository first if it is empty
         from . import scout
         scout.ensure(project)
+    git.exclude("__pycache__/")                                # CI leaves these behind: never part of a card's commit
+    dirty = not git.clean()
+    if dirty and on != base:
+        print(f"you have uncommitted changes on {on or 'a detached HEAD'}: switch to {base} (approved cards are merged into it) or commit them, then run again")
+        return 1
     log = Log(project)
+    if dirty:
+        log.say("pipeline", f"you have uncommitted changes: they stay as they are. Each card is built from the last commit of {base} in its own "
+                "git worktree (in the project's folder; set `setup` if CI needs installed dependencies) and merged without touching them")
     jobs = a.jobs or cfg.get("parallel", 1)
-    if jobs > 1:                                               # several cards at once, each in its own git worktree
+    if jobs > 1 or dirty:                                      # several cards at once, or your own work in this folder: each card in its own git worktree
         from .parallel import Parallel
         pipe = Parallel(project, cfg, log, Runner(project, cfg, log), base=base, jobs=jobs)
     else:
@@ -213,7 +209,7 @@ def cmd_tui(a, project):
 def cmd_context(a, project):
     """Study the repository and fill context/project.md (stack, how to run/test, conventions) so the agents know the project."""
     from . import scout
-    if not (project / "board").exists():
+    if not folder.exists(project):
         print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
         return 1
     if scout.filled(project) and not a.force:
@@ -225,7 +221,7 @@ def cmd_context(a, project):
 
 def cmd_web(a, project):
     """A kanban page in your browser (this computer only): watch cards move, add requests, answer questions, run/stop."""
-    if not (project / "board").exists():
+    if not folder.exists(project):
         print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
         return 1
     if not ensure_trust(project, config.load(project)):
@@ -237,7 +233,7 @@ def cmd_web(a, project):
 
 def cmd_live(a, project):
     """Open the TUI in a NEW terminal window of exactly the TUI size (Windows Terminal, macOS Terminal, common Linux terminals)."""
-    if not (project / "board").exists():
+    if not folder.exists(project):
         print(f"{project} is not an orchestrator project yet. Run:  lonerchestrator init")
         return 1
     if not ensure_trust(project, config.load(project)):
@@ -259,7 +255,7 @@ def cmd_live(a, project):
 
 
 def cmd_tail(a, project):
-    f = project / ".orchestrator" / "streams" / f"{a.name}.log"
+    f = folder.of(project) / "streams" / f"{a.name}.log"
     c = COLOR.get(a.name, "37")
     sys.stdout.write(f"\x1b[1;{c}m===== {a.name.upper()} =====\x1b[0m\n")
     pos = 0
@@ -283,10 +279,10 @@ def cmd_tail(a, project):
 
 def cmd_status(a, project):
     print("board:", ", ".join(f"{k}={v}" for k, v in Board(project).counts().items()))
-    st = project / ".orchestrator" / "state.json"
+    st = folder.of(project) / "state.json"
     if st.exists():
         print("state:", st.read_text(encoding="utf-8"))
-    log = project / "board" / "_log.md"
+    log = folder.of(project) / "log.md"
     if log.exists():
         print("\nlast events:\n" + "\n".join(log.read_text(encoding="utf-8").splitlines()[-12:]))
     return 0
@@ -434,11 +430,11 @@ def main(argv=None):
     ap.add_argument("-C", dest="project", default=".", help="project directory (default: cwd)")
     ap.add_argument("--version", action="version", version=f"lonerchestrator {__version__}")
     sub = ap.add_subparsers(dest="cmd")
-    p = sub.add_parser("init", help="install board/agents/guardrails into a project")
-    p.add_argument("--force", action="store_true")
-    p = sub.add_parser("new", help="create a card in board/backlog")
+    p = sub.add_parser("init", help="set up the orchestrator for this project, in a folder of its own (nothing is added to the project)")
+    p.add_argument("--force", action="store_true", help="write the templates again over the folder's rules, agents and CI script")
+    p = sub.add_parser("new", help="create a card in the backlog")
     p.add_argument("title")
-    p.add_argument("--area", default="backend", help=f"one of the areas in .orchestrator/config.json `agents` (default: {', '.join(AREAS)})")
+    p.add_argument("--area", default="backend", help=f"one of the areas in the config's `agents` (default: {', '.join(AREAS)})")
     p = sub.add_parser("trust", help="approve the project's CI command (it runs through a shell)")
     p.add_argument("--yes", action="store_true", help="approve without asking")
     p = sub.add_parser("answer", help="answer the questions of a blocked card and send it back to the backlog")
@@ -492,4 +488,7 @@ def main(argv=None):
     if a.cmd is None:                       # bare `lonerchestrator` = open the TUI for this folder
         a = ap.parse_args(["-C", a.project, "live"])
     project = Path(a.project).resolve()
+    if a.cmd != "ais":
+        folder.migrate(project)             # a project set up by an older version: its files move out of it, into its own folder
+        folder.locate(project)              # a project that moved (renamed, another drive, cloned again) gets its folder back
     return COMMANDS[a.cmd](a, project)

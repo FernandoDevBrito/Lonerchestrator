@@ -118,12 +118,17 @@ def totals(records):
     return t
 
 
+def _runs(project):
+    from .folder import of  # late: folder.py builds on home() above
+    return of(project) / "runs"
+
+
 def run_totals(project, run_id):
-    return totals(_records([Path(project) / ".orchestrator" / "runs" / run_id / "usage.jsonl"] if run_id else []))
+    return totals(_records([_runs(project) / run_id / "usage.jsonl"] if run_id else []))
 
 
 def all_totals(project):
-    return totals(_records(sorted((Path(project) / ".orchestrator" / "runs").glob("*/usage.jsonl"))))
+    return totals(_records(sorted(_runs(project).glob("*/usage.jsonl"))))
 
 
 # ---------------------------------------------------------------- rolling windows and budgets (any AI)
@@ -131,7 +136,7 @@ PERIODS = {"5h": 5 * 3600, "day": 86400, "week": 7 * 86400, "month": 30 * 86400}
 
 
 def all_records(project):
-    return _records(sorted((Path(project) / ".orchestrator" / "runs").glob("*/usage.jsonl")))
+    return _records(sorted(_runs(project).glob("*/usage.jsonl")))
 
 
 def window_totals(project, now=None, records=None):

@@ -45,7 +45,7 @@ class Plan:
     def run(self, p, j):
         p.log.state(card=j.cid, phase="plan")
         t = time.time()
-        out = p._ask("planner", j.agent, f"PHASE=PLAN. Card: {j.card.path.as_posix()}. Follow your agent instructions and CLAUDE.md.")
+        out = p._ask("planner", j.agent, f"PHASE=PLAN. Card: {j.card.path.as_posix()}. Follow your agent instructions and the project rules.")
         p.log.artifact(j.cid, "plan.txt", out)
         m = marker(out)
         if m == "BLOCKED":

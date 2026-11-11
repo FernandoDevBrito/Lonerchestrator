@@ -1,7 +1,7 @@
 import json
 import sys
 
-from orch import agents, usage
+from orch import agents, folder, usage
 
 RESULT = {"type": "result", "duration_ms": 3241, "total_cost_usd": 0.17,
           "modelUsage": {"claude-sonnet-5-5": {"inputTokens": 2, "outputTokens": 4, "cacheReadInputTokens": 100, "cacheCreationInputTokens": 43985,
@@ -37,7 +37,7 @@ def test_agy_usage(tmp_path):
 
 def test_totals_per_run_and_all(tmp_path):
     for run, n in (("r1", 1), ("r2", 2)):
-        d = tmp_path / ".orchestrator" / "runs" / run
+        d = folder.of(tmp_path) / "runs" / run
         d.mkdir(parents=True)
         u = usage.Usage(d)
         for _ in range(n):

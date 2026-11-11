@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from orch import graph, graphview, symbols, term
+from orch import folder, graph, graphview, symbols, term
 from orch.board import create_card
 from orch.cli import main
 
@@ -264,7 +264,7 @@ def test_staged_changes_are_what_the_pipeline_graphs(project):
 # ---------------------------------------------------------------- reading: snapshots, findings, filters, attempts
 
 def save(project, cid, n, model, reviews=None, run="20261111-101500"):
-    d = Path(project) / ".orchestrator" / "runs" / run / cid
+    d = folder.of(project) / "runs" / run / cid
     d.mkdir(parents=True, exist_ok=True)
     (d / f"graph{n}.json").write_text(graph.dumps(model), encoding="utf-8")
     for who, text in (reviews or {}).items():
@@ -418,7 +418,7 @@ def test_every_attempt_saves_its_graph_and_each_reviewers_words(project, cfg, lo
     assert sorted(p.name for p in d.glob("graph*.json")) == ["graph1.json", "graph2.json"]
     assert (d / "review1-qa.txt").read_text(encoding="utf-8") == "VERDICT: APPROVED" and "REJECTED" in (d / "review1-cross.txt").read_text(encoding="utf-8")
     assert "# CHANGE GRAPH" not in (d / "review1.txt").read_text(encoding="utf-8")   # the reviewers' summary is opt-in
-    assert "attempt 1: Graph: 1 file, 1 symbol, 1 change" in (project / "board" / "done" / "001-thing.md").read_text(encoding="utf-8")
+    assert "attempt 1: Graph: 1 file, 1 symbol, 1 change" in (folder.of(project) / "board" / "done" / "001-thing.md").read_text(encoding="utf-8")
     assert '"graph"' in (log.dir / "events.jsonl").read_text(encoding="utf-8")
     first, snaps = graph.load(project, "001-thing", "main", key=f"{log.dir.name}/1")
     assert len(snaps) == 2 and first["stats"]["findings"] == 1

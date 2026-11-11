@@ -29,4 +29,4 @@ jobs:
       - name: Wheel contains the templates
         run: |
           python -m build --wheel
-          python -c "import glob,zipfile; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); n=z.namelist(); assert any(x.endswith('templates/dot-claude/agents/splitter.md') for x in n), n"
+          python -c "import glob,zipfile; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); n=z.namelist(); assert any(x.endswith('templates/agents/splitter.md') for x in n) and any(x.endswith('templates/rules.md') for x in n), n"

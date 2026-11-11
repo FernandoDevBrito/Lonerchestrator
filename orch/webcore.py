@@ -5,8 +5,8 @@ A handler is registered where it is written:
     @route("POST", "/api/move", takes="body")
     def move(self, body): ...
 
-`takes` says what the handler receives: nothing, the JSON body ("body"), the ?card= query value ("card"), the rest of the path after a prefix route
-("tail"), or that rest and the whole query as a dict ("tailq")."""
+`takes` says what the handler receives: nothing, the JSON body ("body"), the ?card= query value ("card"), the whole query as a dict ("query"),
+the rest of the path after a prefix route ("tail"), or that rest and the whole query ("tailq")."""
 import re
 
 ID = re.compile(r"^[\w.-]{1,80}$")

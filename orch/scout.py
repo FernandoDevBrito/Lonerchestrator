@@ -10,7 +10,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from . import suggest
+from . import folder, suggest
 from .gitops import Git
 from .safe import clean
 
@@ -25,8 +25,8 @@ MAX_FILE = 200_000
 
 
 def filled(project):
-    """True when context/project.md already has real content (comments, headings and empty bullets do not count)."""
-    f = Path(project) / "context" / "project.md"
+    """True when context/project.md (in the project's folder) already has real content (comments, headings and empty bullets do not count)."""
+    f = folder.of(project) / "context" / "project.md"
     if not f.is_file():
         return False
     body = [ln for ln in re.sub(r"<!--.*?-->", "", f.read_text(encoding="utf-8", errors="replace"), flags=re.DOTALL).splitlines() if ln.strip() and not ln.startswith("#")]
@@ -50,7 +50,7 @@ def _files(project):
         names = []
     if not names:
         names = [str(p.relative_to(project)).replace("\\", "/") for p in Path(project).rglob("*") if p.is_file() and not (set(p.relative_to(project).parts) & SKIP_DIRS)]
-    return sorted(n for n in names if not (set(Path(n).parts) & SKIP_DIRS) and not SECRET.search(Path(n).name) and not n.startswith("board/"))[:5000]
+    return sorted(n for n in names if not (set(Path(n).parts) & SKIP_DIRS) and not SECRET.search(Path(n).name))[:5000]
 
 
 def _json(path):
@@ -145,7 +145,7 @@ def detect_make(f):
 
 def detect_ci_script(f):
     if (f.project / "scripts" / "ci.sh").is_file():
-        f.add("ci", "bash scripts/ci.sh (the orchestrator's CI command)")
+        f.add("ci", "bash scripts/ci.sh")
 
 
 def detect_tooling(f):
@@ -206,7 +206,7 @@ def render_basic(facts):
     conv = ("Layout: " + ", ".join(t.split(" (")[0] for t in facts["top"][:10])) + ("; tests in " + ", ".join(facts["tests"]) if facts["tests"] else "; no tests found")
     return (f"# Project context\n\n{MARK}\n- What it is: {what}\n- Stack: {stack}\n- How to run / test / lint / build (one command each): {cmds}\n"
             f"- Conventions (naming, structure, style): {conv}. Follow the style of the surrounding code.\n"
-            "- Things agents must never do here: edit scripts/, .claude/, CLAUDE.md or GEMINI.md; deploy; commit secrets; touch files outside the card's scope.\n")
+            "- Things agents must never do here: edit .claude/, CLAUDE.md or GEMINI.md; deploy; commit secrets; touch files outside the card's scope.\n")
 
 
 def prompt(facts):
@@ -217,7 +217,7 @@ def prompt(facts):
         "# Project context\n"
         "- What it is: ...\n- Stack: ...\n- How to run / test / lint / build (one command each): ...\n- Conventions (naming, structure, style): ...\n"
         "- Things agents must never do here: ...\n"
-        "The last bullet always includes: edit scripts/, .claude/, CLAUDE.md or GEMINI.md, deploy, commit secrets.\n\n"
+        "The last bullet always includes: edit .claude/, CLAUDE.md or GEMINI.md, deploy, commit secrets.\n\n"
         f"<<<FACTS\n{facts_text(facts)}\nFACTS>>>")
 
 
@@ -246,30 +246,18 @@ def study(project, ask=None, use_ai=True):
     return render_basic(facts), "basic"
 
 
-def ensure(project, ask=None, use_ai=True, force=False, say=print, commit=True):
-    """Fill context/project.md when it is empty (or always with `force`). Returns the source ("ai"/"basic") or None when nothing was needed.
-    The file is committed when the working tree was clean, so a run can start right after."""
+def ensure(project, ask=None, use_ai=True, force=False, say=print):
+    """Fill context/project.md (in the project's folder) when it is empty, or always with `force`. Returns the source ("ai"/"basic")
+    or None when nothing was needed."""
     project = Path(project)
     if filled(project) and not force:
         return None
     say("studying the project to fill context/project.md (the agents read it before every card)...")
     content, source = study(project, ask, use_ai)
-    f = project / "context" / "project.md"
-    f.parent.mkdir(exist_ok=True)
-    git = Git(project)
-    was_clean = False
-    try:
-        was_clean = git.clean()
-    except (RuntimeError, OSError):
-        pass
+    f = folder.of(project) / "context" / "project.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(content, encoding="utf-8")
-    if commit and was_clean:
-        try:
-            git.run("add", "context/project.md")
-            git.commit("context: project overview drafted by lonerchestrator")
-        except RuntimeError:
-            pass
-    say(f"context/project.md written from the repository ({'drafted by the AI' if source == 'ai' else 'from the facts found, no AI answered'}"
-        f"{'' if was_clean or not commit else '; your working tree has changes, so it is not committed yet'}): read it and correct anything wrong.")
+    say(f"{f.as_posix()} written from the repository ({'drafted by the AI' if source == 'ai' else 'from the facts found, no AI answered'}): "
+        "read it and correct anything wrong.")
     return source
 

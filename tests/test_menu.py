@@ -1,5 +1,3 @@
-import json
-
 from orch import config, intro, menu
 
 AIS = {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "opus", "haiku"]},
@@ -21,7 +19,7 @@ def test_toggle_on_and_off_persists(project):
     setup(project)
     assert "checked" in menu.toggle(project, "agy/gemini-4-argon-high")
     assert "agy/gemini-4-argon-high" in menu.enabled(project)
-    assert json.loads((project / ".orchestrator" / "config.json").read_text())["use"][-1] == "agy/gemini-4-argon-high"
+    assert config.read_raw(project)["use"][-1] == "agy/gemini-4-argon-high"
     assert "unchecked" in menu.toggle(project, "claude/haiku")
     assert "claude/haiku" not in menu.enabled(project)
 

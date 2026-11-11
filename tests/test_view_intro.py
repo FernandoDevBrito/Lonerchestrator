@@ -1,6 +1,6 @@
 import json
 
-from orch import intro, view
+from orch import folder, intro, view
 
 AIS = {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "opus", "haiku"]},
        "agy": {"installed": True, "logged_in": True, "models": ["gemini-4-argon-high", "gemini-3.8-flash-high"]}}
@@ -17,7 +17,7 @@ def test_intro_assume_yes_writes_roles_and_prints_board(project, capsys):
     assert [r["name"] for r in raw["reviewers"]] == ["qa", "cross"]
     assert raw["reviewers"][1]["kind"] == "agy"                       # cross-review uses a different model family
     assert intro.configured(project)
-    assert json.loads((project / ".orchestrator" / "ais.json").read_text())["ais"]["agy"]["logged_in"]
+    assert json.loads((folder.of(project) / "ais.json").read_text())["ais"]["agy"]["logged_in"]
     assert "REVIEW" in capsys.readouterr().out
 
 

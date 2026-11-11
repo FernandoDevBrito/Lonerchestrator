@@ -1,6 +1,6 @@
 """One object per AI the orchestrator can use (Strategy). Callers say WHAT they want (a role, a prompt, edit or read); each AI knows HOW to be called.
 
-    ClaudeCode   native: its own agents (.claude/agents/<name>.md), permissions and stream
+    ClaudeCode   native: the agent, its permissions and the rules from the project's folder become its own (agents.Runner), its stream
     GenericCLI   anything described in the provider registry: the role text and project rules travel inside the prompt
 
 Adding an AI with an integration of its own is a new subclass; adding one that only needs a command line is a `providers` entry, no code."""

@@ -1,6 +1,9 @@
 """Any AI, any model, any effort, any area: effort reaches each CLI the way it takes one, areas come from the config, the docs agent ships."""
-from orch import board, checks, config, intake, menu, providers
-from orch.cli import TEMPLATES
+import json
+from pathlib import Path
+
+from orch import board, checks, config, folder, intake, menu, providers
+from orch.folder import TEMPLATES
 
 
 def test_effort_reaches_each_cli_in_its_own_words():
@@ -22,6 +25,34 @@ def test_claude_runner_passes_effort_only_when_set(tmp_path, monkeypatch):
     r.claude("builder", "backend", "go", model="opus", effort="high")
     r.claude("builder", "backend", "go")
     assert seen[0][seen[0].index("--effort") + 1] == "high" and "--effort" not in seen[1]
+
+
+def test_claude_gets_the_folder_through_flags_and_the_project_gets_nothing(tmp_path, monkeypatch):
+    from orch import agents
+    proj = tmp_path / "p"
+    proj.mkdir()
+    folder.install(proj, say=lambda _: None)
+    cfg, home, seen = config.load(proj), folder.of(proj), []
+    r = agents.Runner(proj, cfg, log=None)
+    monkeypatch.setattr(r, "_run", lambda role, cmd, claude: seen.append(cmd))
+    r.claude("builder", "backend", "go", model="opus")
+    cmd, ci = seen[0], f'bash "{home.as_posix()}/ci.sh"'
+    assert cmd[cmd.index("--add-dir") + 1:cmd.index("--agents")] == [str(home / d) for d in ("board", "context", "memory")]
+    assert cmd[cmd.index("--agent") + 1] == "backend"
+    agent = json.loads(Path(cmd[cmd.index("--agents") + 1]).read_text(encoding="utf-8"))["backend"]
+    assert f"`{home.as_posix()}/memory/backend.md`" in agent["prompt"] and f"`{ci}`" in agent["prompt"]
+    assert "{folder}" not in agent["prompt"] and "{ci}" not in agent["prompt"] and "model" not in agent    # the config's model wins
+    assert agent["tools"] == ["Read", "Edit", "Write", "Grep", "Glob", "Bash"]
+    settings = json.loads(Path(cmd[cmd.index("--settings") + 1]).read_text(encoding="utf-8"))
+    assert f"Bash({ci}:*)" in settings["permissions"]["allow"]
+    assert f"{home.as_posix()}/memory/" in cmd[cmd.index("--append-system-prompt") + 1]
+    assert list(proj.iterdir()) == []                                                   # nothing written into the project
+
+
+def test_other_clis_reach_the_folder_through_their_own_flag():
+    reg = providers.registry()
+    assert providers.build_argv(reg["codex"], "default", "hi", "edit", dirs=["/b", "/m"])[0][-5:] == ["--add-dir", "/b", "--add-dir", "/m", "-"]
+    assert "--include-directories" in providers.build_argv(reg["gemini"], "default", "hi", "edit", dirs=["/b"])[0]
 
 
 def test_effort_survives_a_model_change(tmp_path):
@@ -57,7 +88,7 @@ def test_docs_and_research_requests_go_to_the_docs_agent(tmp_path):
 
 
 def test_the_docs_agent_ships_and_readiness_names_a_missing_one(tmp_path):
-    text = (TEMPLATES / "dot-claude" / "agents" / "docs.md").read_text(encoding="utf-8")
+    text = (TEMPLATES / "agents" / "docs.md").read_text(encoding="utf-8")
     for must in ("name: docs", "PHASE=PLAN", "PHASE=IMPLEMENT", "RESULT: PLANNED", "RESULT: DONE", "RESULT: BLOCKED", "context/decisions.md", "path/to/file.py:42"):
         assert must in text, must
     assert (TEMPLATES / "memory" / "docs.md").is_file()

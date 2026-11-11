@@ -1,7 +1,7 @@
 """End-to-end pipeline with a fake agent runner and a real temp git repo."""
 import sys
 
-from conftest import add_card
+from conftest import add_card, home
 
 from orch.pipeline import Pipeline
 
@@ -17,7 +17,7 @@ class Fake:
     def claude(self, role, agent, prompt, model=None):
         self.calls.append(role)
         self.models[role] = model
-        card = next(self.p.glob("board/doing/*.md"), None)
+        card = next(home(self.p).glob("board/doing/*.md"), None)
         if role == "splitter":
             return self.split(self.p) if self.split else "RESULT: SINGLE"
         if role == "planner":
@@ -46,7 +46,7 @@ def run(project, cfg, log, fake, **kw):
 
 
 def names(project, state):
-    return [c.name for c in (project / "board" / state).glob("*.md")]
+    return [c.name for c in (home(project) / "board" / state).glob("*.md")]
 
 
 def test_happy_path_merges_and_retro(project, cfg, log):
@@ -57,7 +57,8 @@ def test_happy_path_merges_and_retro(project, cfg, log):
     assert (project / "thing.py").exists()                       # merged into main
     assert fake.calls.count("builder") == 1 and "retro" in fake.calls
     assert fake.models["builder"] == "sonnet"                    # role models come from config
-    assert "001-thing" in (project / "context" / "history.md").read_text(encoding="utf-8")
+    assert "001-thing" in (home(project) / "context" / "history.md").read_text(encoding="utf-8")
+    assert not any((project / d).exists() for d in ("board", "context", "memory", ".orchestrator"))   # nothing of the orchestrator in the project
     assert (log.dir / "events.jsonl").read_text(encoding="utf-8").count("card_done") == 1
 
 
@@ -91,8 +92,8 @@ def test_guardrail_violation_never_reaches_review(project, cfg, log):
     add_card(project)
 
     def bad(p):
-        (p / "scripts").mkdir(exist_ok=True)
-        (p / "scripts" / "ci.sh").write_text("exit 0\n")
+        (p / ".claude").mkdir(exist_ok=True)
+        (p / ".claude" / "settings.json").write_text("{}\n")
 
     fake = Fake(project, build=bad)
     run(project, cfg, log, fake)
@@ -123,15 +124,15 @@ def test_splitter_breaks_big_card_into_children_that_run_in_the_same_run(project
 
     def split(p):
         for n in (1, 2):
-            (p / "board" / "backlog" / f"001-thing-{n}-part.md").write_text(CARD.replace("Add thing", f"Part {n}"), encoding="utf-8")
+            (home(p) / "board" / "backlog" / f"001-thing-{n}-part.md").write_text(CARD.replace("Add thing", f"Part {n}"), encoding="utf-8")
         return "RESULT: SPLIT"
 
     def build(p):
-        doing = next(p.glob("board/doing/*.md")).stem
+        doing = next(home(p).glob("board/doing/*.md")).stem
         (p / f"{doing}.py").write_text("x = 1\n")
 
     add_card(project)
-    calls = Fake(project, split=lambda p: split(p) if not list(p.glob("board/*/001-thing-*.md")) else "RESULT: SINGLE", build=build)
+    calls = Fake(project, split=lambda p: split(p) if not list(home(p).glob("board/*/001-thing-*.md")) else "RESULT: SINGLE", build=build)
     run(project, cfg, log, calls)
     assert sorted(names(project, "done")) == ["001-thing-1-part.md", "001-thing-2-part.md", "001-thing.md"]
     assert calls.calls.count("builder") == 2                      # parent itself was never built
@@ -140,7 +141,7 @@ def test_splitter_breaks_big_card_into_children_that_run_in_the_same_run(project
 
 def test_splitter_invalid_children_fall_back_to_whole_card(project, cfg, log):
     def bad_split(p):
-        (p / "board" / "backlog" / "001-thing-1-x.md").write_text("---\ntitle: x\n---\n# x\n", encoding="utf-8")
+        (home(p) / "board" / "backlog" / "001-thing-1-x.md").write_text("---\ntitle: x\n---\n# x\n", encoding="utf-8")
         return "RESULT: SPLIT"
 
     add_card(project)

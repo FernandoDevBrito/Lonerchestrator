@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import add_card
+from conftest import add_card, home
 
 from orch import providers
 from orch.agents import Runner
@@ -33,7 +33,7 @@ def test_custom_ai_runs_every_role(project, mine, log):
     add_card(project)
     assert Pipeline(project, cfg, log, Runner(project, cfg, log)).run() == 0
     assert (project / "001-thing.py").exists()
-    assert [p.name for p in (project / "board" / "done").glob("*.md")] == ["001-thing.md"]
+    assert [p.name for p in (home(project) / "board" / "done").glob("*.md")] == ["001-thing.md"]
     argv = [r["argv"] for r in records(calls) if "argv" in r]
     edit = [a for a in argv if "--rw" in a]
     read = [a for a in argv if "--ro" in a]

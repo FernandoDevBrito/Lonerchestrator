@@ -1,5 +1,5 @@
 """The Change graph view of the web page: one card's diff as a graph of the symbols it changed (graph.py), filtered and laid out
-(graphview.py). It only reads: saved snapshots under .orchestrator/runs, or git. Every query value is checked or clamped here."""
+(graphview.py). It only reads: saved snapshots under runs/ in the project's folder, or git. Every query value is checked or clamped here."""
 import json
 import re
 

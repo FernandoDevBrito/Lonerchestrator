@@ -1,5 +1,5 @@
 """The pipeline is a list of stages: a new step is a class with run(p, job), and workspaces share one small interface."""
-from conftest import add_card
+from conftest import add_card, home
 from test_pipeline import Fake, names
 
 from orch import stages
@@ -28,7 +28,7 @@ def test_a_new_stage_can_block_a_card_before_review(project, cfg, log):
     p.stages.insert(3, Veto())                                       # after Build, Guardrails, CI; before Review
     assert p.run() == 0
     assert names(project, "blocked") == ["001-thing.md"] and not names(project, "done")
-    assert "qa" not in fake.calls and "scan found a secret" in (project / "board" / "blocked" / "001-thing.md").read_text(encoding="utf-8")
+    assert "qa" not in fake.calls and "scan found a secret" in (home(project) / "board" / "blocked" / "001-thing.md").read_text(encoding="utf-8")
 
 
 def test_a_stage_that_retries_gives_the_builder_its_feedback_and_another_attempt(project, cfg, log):
@@ -38,7 +38,7 @@ def test_a_stage_that_retries_gives_the_builder_its_feedback_and_another_attempt
     p.stages.insert(1, FixOnce())
     assert p.run() == 0
     assert fake.calls.count("builder") == 2 and names(project, "done") == ["001-thing.md"]
-    fb = next((project / ".orchestrator" / "runs").glob("*/001-thing/feedback.txt")).read_text(encoding="utf-8")
+    fb = next((home(project) / "runs").glob("*/001-thing/feedback.txt")).read_text(encoding="utf-8")
     assert fb == "FIX IT: the scan wants a docstring"
 
 

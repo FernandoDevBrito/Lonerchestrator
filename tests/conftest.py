@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from orch import config
+from orch import config, folder
 from orch.board import Board
 from orch.events import Log
 
@@ -47,9 +47,9 @@ def project(tmp_path):
     sh(p, "git", "init", "-q", "-b", "main")
     sh(p, "git", "config", "user.email", "t@t")
     sh(p, "git", "config", "user.name", "t")
-    (p / ".gitignore").write_text("board/*/*.md\nboard/_log.md\n.orchestrator/\n", encoding="utf-8")
-    (p / "memory").mkdir()
-    (p / "memory" / "backend.md").write_text("# m\n", encoding="utf-8")
+    (p / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+    (folder.of(p) / "memory").mkdir(parents=True)                       # the orchestrator's files live outside the project (folder.py)
+    (folder.of(p) / "memory" / "backend.md").write_text("# m\n", encoding="utf-8")
     Board(p).ensure()
     sh(p, "git", "add", "-A")
     sh(p, "git", "commit", "-qm", "init")
@@ -84,7 +84,12 @@ def isolated_home(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("LONERCHESTRATOR_CLAUDE_JSON", str(tmp_path_factory.mktemp("lc_claude") / "none.json"))   # never read the real ~/.claude.json
 
 
+def home(project):
+    """The project's folder: its cards, context, memory, config and runs (folder.py)."""
+    return folder.of(project)
+
+
 def add_card(project, name="001-thing", text=CARD):
-    f = project / "board" / "backlog" / f"{name}.md"
+    f = Board(project).root / "backlog" / f"{name}.md"
     f.write_text(text, encoding="utf-8")
     return f

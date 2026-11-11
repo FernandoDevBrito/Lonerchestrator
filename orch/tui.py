@@ -9,7 +9,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import answer, checks, config, menu, providers, settings, term, usage
+from . import answer, checks, config, folder, menu, providers, settings, term, usage
 from .board import Board, Card, create_card
 from .safe import clean, keep_sgr
 from .view import PHASE_IDX, _json, load_events, reviewer_status, stage_status
@@ -117,12 +117,12 @@ class Ctx:
         self.stat = stage_status(self.evs, self.cur)
         self.revs, self.got = reviewer_status(self.evs, self.cur, [r["name"] for r in self.cfg["reviewers"]])
         self.spin = SPIN[int(time.time() * 8) % len(SPIN)]
-        self.ais = _json(self.project / ".orchestrator" / "ais.json").get("ais", {})
+        self.ais = _json(folder.of(self.project) / "ais.json").get("ais", {})
         self.items = {k: self.board.cards(k) for _, k, _ in COLS}
         self.avail = menu.available(self.project)
         self.on = menu.enabled(self.project, self.avail)
         self.limits = usage.read_limits().get("claude", {})
-        runs_dir = self.project / ".orchestrator" / "runs"
+        runs_dir = folder.of(self.project) / "runs"
         runs = sorted(runs_dir.glob("*")) if runs_dir.exists() else []
         self.run_use = usage.run_totals(self.project, self.st.get("run") or (runs[-1].name if runs else None))
         self.all_use = usage.all_totals(self.project)
@@ -212,7 +212,7 @@ def flow_node(x, name, who, model, status):
 
 def screen_flow(x):
     cfg, r = x.cfg, x.cfg["roles"]
-    found = list(x.project.glob(f"board/*/{x.card_id}.md")) if x.card_id else []
+    found = list(x.board.root.glob(f"*/{x.card_id}.md")) if x.card_id else []
     area = Card(found[0]).area if found else "backend"
     st = ["ok" if x.card_id else "pending"] + x.stat
     qa_n, cross_n = [rv["name"] for rv in cfg["reviewers"]][:2]
@@ -456,7 +456,7 @@ def tail_lines(path, n, w):
 
 
 def screen_agents(x):
-    sd = x.project / ".orchestrator" / "streams"
+    sd = folder.of(x.project) / "streams"
     ph = x.phase.split()[0] if x.cur is not None else ""
     active = {"planner": ph in ("split", "plan"), "builder": ph == "build", "qa": ph == "review", "cross": ph == "review", "retro": ph == "retro",
               "pipeline": x.cur is not None}
@@ -781,8 +781,8 @@ class Runner:
         if self.proc and self.proc.poll() is None:
             return
         root = Path(__file__).resolve().parent.parent
-        d = self.project / ".orchestrator"
-        d.mkdir(exist_ok=True)
+        d = folder.of(self.project)
+        d.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "PYTHONPATH": str(root) + os.pathsep + os.environ.get("PYTHONPATH", ""), "PYTHONIOENCODING": "utf-8"}
         out = open(d / "run.out", "w", encoding="utf-8")  # noqa: SIM115
         self.proc = term.spawn([sys.executable, "-m", "orch", "-C", str(self.project), "run", "--base", self.base], self.project, env, out)
@@ -799,7 +799,7 @@ class Runner:
             return paint("running", f"{SPIN[int(time.time() * 8) % 10]} run in progress")
         if rc == 0:
             return paint("ok", "✓ run finished")
-        tail = (self.project / ".orchestrator" / "run.out").read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1:]
+        tail = (folder.of(self.project) / "run.out").read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1:]
         return paint("fail", clip(f"× run stopped (rc {rc}): {tail[0] if tail else ''}", 60))
 
 
@@ -865,7 +865,8 @@ def run_tui(project, base, autorun=False, tab=1):
     project = Path(project).resolve()
     out, ui, runner = sys.stdout, UI(), Runner(project, base)
     ui.screen = min(max(tab, 1), len(TABS)) - 1
-    (project / ".orchestrator").mkdir(exist_ok=True)
+    home = folder.of(project)
+    home.mkdir(parents=True, exist_ok=True)
     fit_window(out)
     out.write("\x1b[?1049h\x1b[?25l")
     if autorun:
@@ -875,7 +876,7 @@ def run_tui(project, base, autorun=False, tab=1):
         with term.RawTerminal():
             while True:
                 sz = shutil.get_terminal_size((W, H))
-                (project / ".orchestrator" / "tui.size").write_text(f"{sz.columns}x{sz.lines}", encoding="utf-8")
+                (home / "tui.size").write_text(f"{sz.columns}x{sz.lines}", encoding="utf-8")
                 x = Ctx(project, ui, runner.status())
                 for k in term.read_keys():
                     if k == "\x03" or (k == "q" and not ui.mode):    # Ctrl+C, or q (but q is text while answering)

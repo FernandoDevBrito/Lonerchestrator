@@ -42,7 +42,7 @@ hash carries `sel`, `focus`, `depth`, `only`, `hide`, `findings`, `guardrails`, 
 (hotspots, dependencies added or removed, edges between top-level directories, guardrail hits) under `# CHANGE GRAPH`. It is off by
 default, so the reviewers' input is unchanged unless you opt in. It never contains the builder's own words.
 
-**Config** (`.orchestrator/config.json`, also in the Settings tab):
+**Config** (the project's `config.json`, also in the Settings tab):
 
 ```json
 { "graph": { "enabled": true, "review_summary": false } }
@@ -54,7 +54,7 @@ branch when asked.
 ## Where a graph comes from
 
 1. **The pipeline.** Every attempt, right after the guardrails have checked the staged change (pass or fail; `orch/stages.py`,
-   `draw`), the graph of that diff against the base branch is saved as `.orchestrator/runs/<run>/<card>/graph<attempt>.json`.
+   `draw`), the graph of that diff against the base branch is saved as `runs/<run>/<card>/graph<attempt>.json` in the project's folder.
    Each reviewer's output of that attempt is saved next to it as `review<attempt>-<reviewer>.txt`. If building the graph fails, the error is logged and the card
    carries on.
 2. **Git, when no attempt saved one.** The card's branch `card/<id>` against where it left the base, else the merge commit
@@ -168,7 +168,7 @@ so nothing else moves sideways.
 - **Nothing runs.** The analysed code is only read: `ast.parse` and regular expressions. No `eval`, no imports of the project,
   no subprocess besides git plumbing (`diff`, `cat-file`, `grep`, `merge-base`, `rev-parse`, `write-tree`, `log`), no network.
 - **Paths.** Card ids and snapshot keys are checked against strict patterns (`SAFE_ID`, `<yyyymmdd-hhmmss>/<n>`) before they
-  become part of a path under `.orchestrator/runs`. The analysed files are read from git objects, never from the working tree.
+  become part of a path under the project folder's `runs/`. The analysed files are read from git objects, never from the working tree.
   Web query values are whitelisted or clamped (`orch/web_graph.py`).
 - **Secrets.** Diff lines that match the guardrails' secret pattern are replaced with `[redacted: possible secret]` in the model,
   the reviewer findings get the same treatment, and a guardrail hit says where (`path:line`), never what.

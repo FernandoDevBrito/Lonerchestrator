@@ -11,8 +11,8 @@ What lonerchestrator needs on your machine. `lonerchestrator doctor` checks ever
 | **OpenAI Codex CLI** (`codex`) | OpenAI models in any role. Preset written from the vendor docs, not run by the author | optional (needs Node.js) | `codex --version` | `npm install -g @openai/codex` |
 | **Gemini CLI** (`gemini`) | Gemini models in any role. Preset written from the vendor docs, not run by the author | optional (needs Node.js) | `gemini --version` | `npm install -g @google/gemini-cli` |
 | **Ollama (local models)** (`ollama`) | free local models; text only, so they review and suggest but do not build. Preset from the vendor docs, not run by the author | optional | `ollama --version` | Windows: `irm https://ollama.com/install.ps1 \| iex` · macOS/Linux: `curl -fsSL https://ollama.com/install.sh \| sh` |
-| **Any other AI CLI** | anything you describe under `providers` in `.orchestrator/config.json` (OpenCode, Aider, a script, ...) | optional | its own | yours: see the README, section "Any AI" |
-| bash | your project's CI script (`scripts/ci.sh`) | for the default CI command | `bash --version` | Git for Windows includes it |
+| **Any other AI CLI** | anything you describe under `providers` in the project's `config.json` (OpenCode, Aider, a script, ...) | optional | its own | yours: see the README, section "Any AI" |
+| bash | your project's CI script (`ci.sh` in the project's folder) | for the default CI command | `bash --version` | Git for Windows includes it |
 | A terminal of at least 120x34 | the panel | yes | `lonerchestrator doctor` | Windows Terminal, macOS Terminal, gnome-terminal, kitty, ... |
 
 You also need to be **logged in** to the AIs you use: run `claude` once (and `agy`) and follow the prompts.

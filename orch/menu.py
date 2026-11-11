@@ -1,11 +1,11 @@
 """The AIs menu: which AIs/models this project may use (checklist) and who does what. Pure logic, the TUI only draws it.
 
 Keys are "cli/model", e.g. "claude/sonnet" or "agy/gemini-4-argon-high".
-Everything is saved to .orchestrator/config.json on every change, so there is no separate "save" step."""
+Everything is saved to the project's config.json on every change, so there is no separate "save" step."""
 import json
 from pathlib import Path
 
-from . import config, providers
+from . import config, folder, providers
 
 CLAUDE_MODELS = ["sonnet", "opus", "haiku"]
 ROLES = ["splitter", "planner", "builder", "retro"]        # must edit files: any AI that can (Claude Code, Codex, Gemini, your own...)
@@ -20,8 +20,8 @@ def _can_edit(project, cli):
 
 
 def available(project):
-    """[(cli, model)] for the AIs detected as logged in (from .orchestrator/ais.json, written by the introduction)."""
-    f = Path(project) / ".orchestrator" / "ais.json"
+    """[(cli, model)] for the AIs detected as logged in (from ais.json in the project's folder, written by the introduction)."""
+    f = folder.of(project) / "ais.json"
     try:
         ais = json.loads(f.read_text(encoding="utf-8")).get("ais", {})
     except (OSError, ValueError):

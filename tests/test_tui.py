@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from conftest import CARD, add_card
+from conftest import CARD, add_card, home
 
 from orch import tui
 
@@ -9,7 +9,7 @@ SCREENS = range(6)
 
 
 def seed_running(project):
-    root = project / ".orchestrator"
+    root = home(project)
     run = root / "runs" / "r1"
     run.mkdir(parents=True)
     (root / "state.json").write_text(json.dumps({"run": "r1", "card": "001-thing", "phase": "review 2"}))
@@ -102,9 +102,9 @@ def test_ais_tab_shows_checklist_roles_and_live_usage(project):
     usage.set_claude_limits({"status": "allowed", "unifiedWindows": {
         "five_hour": {"utilization": 0.52, "resetsAt": time.time() + 8130, "status": "allowed"},
         "seven_day": {"utilization": 0.19, "resetsAt": time.time() + 260000, "status": "allowed"}}})
-    run = project / ".orchestrator" / "runs" / "r1"
+    run = home(project) / "runs" / "r1"
     run.mkdir(parents=True)
-    (project / ".orchestrator" / "state.json").write_text(json.dumps({"run": "r1", "card": None, "phase": "idle"}))
+    (home(project) / "state.json").write_text(json.dumps({"run": "r1", "card": None, "phase": "idle"}))
     u = usage.Usage(run)
     u.add("claude", "sonnet", "builder", 120_000, 3_100)
     u.add("agy", "gemini-4-argon-high", "cross", 18_000, 40)

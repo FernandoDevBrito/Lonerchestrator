@@ -1,6 +1,6 @@
 ---
 title: <short title>
-area: backend            # backend | frontend | both | docs, or any key of "agents" in .orchestrator/config.json
+area: backend            # backend | frontend | both | docs, or any key of "agents" in the config
 attempts: 0
 ---
 # <short title>
@@ -11,7 +11,7 @@ attempts: 0
 ## Acceptance criteria
 <!-- Each item must be testable: a command or check + the expected result. -->
 - [ ] <e.g. `normalize_name("  a  b ")` returns `"A B"`>
-- [ ] <e.g. `bash scripts/ci.sh` passes>
+- [ ] <e.g. CI passes>
 
 ## Out of scope
 - <what must NOT be touched or built>

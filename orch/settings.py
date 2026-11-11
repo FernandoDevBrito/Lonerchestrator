@@ -1,5 +1,5 @@
 """Project settings editable from the panel (Settings tab). Pure logic: the TUI only draws it.
-Every change is saved to .orchestrator/config.json at once, so there is no separate "save" step."""
+Every change is saved to the project's config.json at once, so there is no separate "save" step."""
 from pathlib import Path
 
 from . import config, trust

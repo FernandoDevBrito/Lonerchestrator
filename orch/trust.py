@@ -1,4 +1,4 @@
-"""Trust for the one thing the orchestrator runs through a shell: the project's `ci` command (.orchestrator/config.json).
+"""Trust for the one thing the orchestrator runs through a shell: the project's `ci` command (config.json in its folder, folder.py).
 A repository you cloned could ship a config whose `ci` does anything, so each project must be approved once, per exact command."""
 import hashlib
 import json

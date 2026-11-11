@@ -174,7 +174,10 @@ def card_text(cid, title, area, attempts, goal, crit, tasks, done, extra=""):
 
 
 def build_project(root):
-    from orch import cli, config, trust, usage
+    from orch import cli, config, folder, trust, usage
+    home = root / "home"
+    home.mkdir()
+    os.environ["LONERCHESTRATOR_HOME"] = str(home)                  # before `init`: the demo's folder lives here, never in your own
     p = root / "orbit-shop"
     p.mkdir()
     env = {**os.environ, "GIT_AUTHOR_NAME": "Alex Moreno", "GIT_AUTHOR_EMAIL": "alex@orbit-shop.example", "GIT_COMMITTER_NAME": "Alex Moreno", "GIT_COMMITTER_EMAIL": "alex@orbit-shop.example"}
@@ -186,28 +189,28 @@ def build_project(root):
     (p / "tests" / "test_search.py").write_text("def test_search():\n    assert True\n", encoding="utf-8")
     write(p, SHOP)
     cli.main(["-C", str(p), "init"])
-    raw = {"base": "main", "ci": "bash scripts/ci.sh", "parallel": 2, "builders": 2,
+    h = folder.of(p)
+    raw = {"base": "main", "parallel": 2, "builders": 2,
            "roles": {"splitter": {"cli": "claude", "model": "haiku"}, "planner": {"cli": "claude", "model": "sonnet"}, "builder": {"cli": "claude", "model": "sonnet"},
                      "retro": {"cli": "claude", "model": "sonnet"}, "suggester": {"cli": "claude", "model": "haiku"}},
            "reviewers": [{"name": "qa", "kind": "claude", "agent": "qa", "model": "sonnet", "required": True}, {"name": "cross", "kind": "agy", "model": "gemini-4-argon-medium", "required": True}],
            "use": ["claude/sonnet", "claude/haiku", "agy/gemini-4-argon-medium", "codex/default"],
            "budgets": {"agy": {"tokens": 400000, "per": "day"}, "codex": {"calls": 40, "cost": 2.0, "per": "5h"}}}
     config.write_raw(p, raw)
-    (p / "context" / "project.md").write_text("# Project context\n\n- What it is: A small online shop with a Python API and a plain HTML storefront.\n- Stack: Python, SQLite, plain HTML and CSS.\n"
+    (h / "context" / "project.md").write_text("# Project context\n\n- What it is: A small online shop with a Python API and a plain HTML storefront.\n- Stack: Python, SQLite, plain HTML and CSS.\n"
                                               "- How to run / test / lint / build (one command each): test: python -m pytest; lint: ruff check .\n- Conventions (naming, structure, style): api/ for endpoints, web/ for pages, tests/ mirrors api/.\n"
-                                              "- Things agents must never do here: edit scripts/, .claude/, CLAUDE.md or GEMINI.md; deploy; commit secrets.\n", encoding="utf-8")
+                                              "- Things agents must never do here: edit .claude/, CLAUDE.md or GEMINI.md; deploy; commit secrets.\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=p, check=True)
     subprocess.run(["git", "commit", "-qm", "Initial commit"], cwd=p, check=True)
     for state, rows in CARDS.items():
         for cid, title, area, attempts, goal, crit, tasks, done in rows:
             extra = "".join(f"{i}. {q}\n" + "".join(f"   {chr(97 + k)}) {o}\n" for k, o in enumerate(opts)) for i, (q, opts) in enumerate(QUESTIONS, 1)) if state == "blocked" else ""
-            (p / "board" / state / f"{cid}.md").write_text(card_text(cid, title, area, attempts, goal, crit, tasks, done, extra), encoding="utf-8")
+            (h / "board" / state / f"{cid}.md").write_text(card_text(cid, title, area, attempts, goal, crit, tasks, done, extra), encoding="utf-8")
     ais = {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "opus", "haiku"]},
            "agy": {"installed": True, "logged_in": True, "models": ["gemini-4-argon-medium", "gemini-4-argon-high", "gemini-3.8-flash-high"]},
            "codex": {"installed": True, "logged_in": True, "models": ["default"], "name": "OpenAI Codex CLI"}}
-    (p / ".orchestrator").mkdir(exist_ok=True)
-    (p / ".orchestrator" / "ais.json").write_text(json.dumps({"ts": "2026-11-08 09:00:00", "ais": ais}), encoding="utf-8")
-    run = p / ".orchestrator" / "runs" / "20261108-091200"
+    (h / "ais.json").write_text(json.dumps({"ts": "2026-11-08 09:00:00", "ais": ais}), encoding="utf-8")
+    run = h / "runs" / "20261108-091200"
     run.mkdir(parents=True)
     demo_graph(p, run)
     ts = lambda m: time.strftime("%F %T", time.localtime(NOW - m * 60))  # noqa: E731
@@ -217,14 +220,14 @@ def build_project(root):
           ("review", "006-dark-mode", "qa", "APPROVED", 63, 18), ("build", "005-order-export-csv", "backend", "attempt 1: done", 190, 20), ("guardrails", "005-order-export-csv", "guardrails", "PASS", 1, 15),
           ("ci", "005-order-export-csv", "ci", "FAIL: 1 failed", 52, 14), ("card_blocked", "004-refund-flow", "orchestrator", "blocked: vague or missing info, see Blockers / questions", 0, 22)]
     (run / "events.jsonl").write_text("\n".join(json.dumps({"ts": ts(m), "kind": k, "card": c, "agent": a, "result": r, "secs": s}) for k, c, a, r, s, m in ev), encoding="utf-8")
-    (p / ".orchestrator" / "state.json").write_text(json.dumps({"run": run.name, "ts": ts(0), "card": "006-dark-mode", "phase": "review 1",
+    (h / "state.json").write_text(json.dumps({"run": run.name, "ts": ts(0), "card": "006-dark-mode", "phase": "review 1",
                                                                 "active": {"005-order-export-csv": "build 2/3", "006-dark-mode": "review 1"}}), encoding="utf-8")
     rows = [(5, "claude", "sonnet", "planner", 18200, 2400, 0.09), (22, "claude", "sonnet", "builder", 61000, 9800, 0.31), (26, "claude", "haiku", "splitter", 2100, 300, 0.01),
             (28, "agy", "gemini-4-argon-medium", "cross", 52000, 900, 0), (200, "agy", "gemini-4-argon-medium", "cross", 31000, 700, 0), (700, "agy", "gemini-4-argon-medium", "cross", 80000, 1500, 0),
             (8, "codex", "default", "builder", 4200, 1800, 0.0212), (4, "codex", "default", "builder", 3000, 900, 0.0132)]
     (run / "usage.jsonl").write_text("\n".join(json.dumps({"ts": NOW - m * 60, "ai": a, "model": mo, "role": r, "in": i, "out": o, "cost": c, **({"est": True} if a == "codex" else {})})
                                                for m, a, mo, r, i, o, c in rows), encoding="utf-8")
-    streams = p / ".orchestrator" / "streams"
+    streams = h / "streams"
     streams.mkdir(exist_ok=True)
     logs = {"pipeline": "09:12:03  006  splitter     single card (4s)\n09:12:41  006  frontend     planned (41s)\n09:16:12  006  frontend     attempt 1: done (212s)\n09:17:14  006  ci           PASS (48s)\n09:18:17  006  qa           APPROVED (63s)\n09:20:30  005  backend      attempt 1: done (190s)\n09:21:22  005  ci           FAIL: 1 failed (52s)",
             "planner": "> Read board/doing/006-dark-mode.md\n> Read web/styles.css\nThe palette is hard coded in 14 places: moving it to CSS variables is the first task.\nRESULT: PLANNED",
@@ -233,9 +236,6 @@ def build_project(root):
             "cross": "Reading the review input...\nContrast of the secondary text in dark mode is 4.6:1, above the limit.", "retro": "Nothing to learn yet for this run."}
     for name, text in logs.items():
         (streams / f"{name}.log").write_text("--- run 20261108-091200 ---\n" + text + "\n", encoding="utf-8")
-    home = root / "home"
-    home.mkdir()
-    os.environ["LONERCHESTRATOR_HOME"] = str(home)
     claude_json = root / "claude.json"
     claude_json.write_text(json.dumps({"projects": {str(p.resolve()): {"hasTrustDialogAccepted": True}}}), encoding="utf-8")
     os.environ["LONERCHESTRATOR_CLAUDE_JSON"] = str(claude_json)

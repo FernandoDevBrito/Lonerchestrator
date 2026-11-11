@@ -10,12 +10,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import answer, checks, config, intake, menu
+from . import answer, checks, config, folder, intake, menu
 from .board import STATES, Board, Card, create_card
 from .events import STREAMS
 from .safe import clean
 from .view import NOW, PHASE_IDX, STAGES, _json, load_events, reviewer_status, stage_status
 from .web_ais import AisApi
+from .web_git import GitApi
 from .web_graph import GraphApi
 from .web_settings import SettingsApi
 from .webcore import ANSI, ID, Bad, find_route, route
@@ -25,7 +26,7 @@ MAX_BODY = 64 * 1024
 ASSETS = {"/app.js": "text/javascript", "/style.css": "text/css"}
 
 
-class App(AisApi, SettingsApi, GraphApi):
+class App(AisApi, SettingsApi, GraphApi, GitApi):
     """The API, independent of HTTP so it is easy to test. Every method returns JSON-able data or raises Bad."""
 
     def __init__(self, project, base, runner):
@@ -52,7 +53,7 @@ class App(AisApi, SettingsApi, GraphApi):
     def state(self):
         active, _ = self.active()
         cfg = config.load(self.project)
-        ais = _json(self.project / ".orchestrator" / "ais.json").get("ais", {})
+        ais = _json(folder.of(self.project) / "ais.json").get("ais", {})
         cols = {s: [self.summary(c, active) for c in self.board.cards(s)] for s in STATES}
         bad = [t for s, t, _ in checks.readiness(self.project) if s == "fail"]
         return {"project": self.project.name, "base": self.base, "columns": cols, "running": self.runner.running(), "run_msg": self.runner.message(),
@@ -137,7 +138,7 @@ class App(AisApi, SettingsApi, GraphApi):
                 "pipeline": bool(phases)}
         out = []
         for name in STREAMS:
-            f = self.project / ".orchestrator" / "streams" / f"{name}.log"
+            f = folder.of(self.project) / "streams" / f"{name}.log"
             try:
                 lines = f.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
             except OSError:
@@ -204,7 +205,7 @@ class App(AisApi, SettingsApi, GraphApi):
         if found is None:
             raise Bad("not found", 404)
         name, takes, tail = found
-        args = {None: (), "body": (body,), "card": ((query or {}).get("card"),), "tail": (tail,), "tailq": (tail, query or {})}[takes]
+        args = {None: (), "body": (body,), "card": ((query or {}).get("card"),), "query": (query or {},), "tail": (tail,), "tailq": (tail, query or {})}[takes]
         return getattr(self, name)(*args)
 
 
@@ -226,7 +227,15 @@ class ProcRunner:
 
     def message(self):
         p = self.r.proc
-        return "" if not p else "running" if p.poll() is None else "finished" if p.returncode == 0 else f"stopped (code {p.returncode})"
+        if not p or p.poll() is None:
+            return "running" if p else ""
+        if p.returncode == 0:
+            return "finished"
+        try:                                                    # why it stopped: the run's last line, as the terminal panel shows it
+            tail = (folder.of(self.r.project) / "run.out").read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1:]
+        except OSError:
+            tail = []
+        return clean(f"stopped (code {p.returncode})" + (f": {tail[0]}" if tail else ""))[:200]
 
 
 def make_handler(app, token, port):

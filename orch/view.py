@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 
+from . import folder
+
 STAGES = ["SPLIT", "PLAN", "BUILD", "CHECKS", "REVIEW", "MERGE"]
 PHASE_IDX = {"split": 0, "plan": 1, "build": 2, "guardrails": 3, "ci": 3, "review": 4, "merge": 5, "retro": 5}
 KIND_IDX = {"split": 0, "plan": 1, "build": 2, "guardrails": 3, "ci": 3, "review": 4, "card_done": 5, "retro": 5}
@@ -27,7 +29,7 @@ def _json(f):
 
 
 def load_events(project):
-    root = Path(project) / ".orchestrator"
+    root = folder.of(project)
     st = _json(root / "state.json")
     runs = sorted((root / "runs").glob("*")) if (root / "runs").exists() else []
     d = root / "runs" / st["run"] if st.get("run") and (root / "runs" / st["run"]).exists() else (runs[-1] if runs else None)

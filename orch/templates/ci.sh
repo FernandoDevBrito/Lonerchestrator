@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI gate for this project: lint, tests, build. Exit non-zero on any failure. Edit to fit the stack.
+# It runs in the project's folder (or a card's worktree of it); this file lives in the orchestrator's folder for the project.
 set -u
-cd "$(dirname "$0")/.."
 fail=0
 if [ -f pyproject.toml ] || [ -f requirements.txt ] || ls ./*.py >/dev/null 2>&1; then
   PY=python; [ -x .venv/Scripts/python.exe ] && PY=.venv/Scripts/python; [ -x .venv/bin/python ] && PY=.venv/bin/python
@@ -13,7 +13,7 @@ elif [ -f package.json ]; then
   npm test --if-present || fail=1
   npm run -s build --if-present || fail=1
 else
-  echo "CI: no known stack, edit scripts/ci.sh"; fail=1
+  echo "CI: no known stack, edit $0"; fail=1
 fi
 [ $fail -eq 0 ] && echo "CI: PASS" || echo "CI: FAIL"
 exit $fail

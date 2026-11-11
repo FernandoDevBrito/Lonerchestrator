@@ -1,9 +1,9 @@
 "use strict";
 const TOKEN = new URLSearchParams(location.search).get("t") || "";
-const TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"];
+const TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings", "Git"];
 const TAB_HELP = {Board: "Every card by state. Drag to hold or re-queue; reorder the backlog to set priority", Flow: "Where one card is in the pipeline, step by step",
   Planner: "Read a card's goal, plan and tasks, and answer the planner's questions", Agents: "Live output of each AI", AIs: "Which AIs are on, who does what, usage and limits",
-  Settings: "Is the project ready to run, and its options"};
+  Settings: "Is the project ready to run, and its options", Git: "What changed in your folder: see each diff, commit what you pick, push and pull"};
 const STAGE_HELP = {SPLIT: "A card that is too big is broken into smaller cards that run next.", PLAN: "An AI reads the card and writes a plan and a task list. If something is vague it asks you instead of guessing.",
   BUILD: "The builder AI writes the code for the tasks, inside its own branch.", CHECKS: "Rules first (protected files, diff size, no deleted tests, no secrets), then your CI: lint, tests, build.",
   REVIEW: "Independent reviewers (they did not write the code) check the change against the acceptance criteria.", MERGE: "Approved work is committed and merged into the base branch. Nothing is ever deployed."};
@@ -14,7 +14,7 @@ const $ = id => document.getElementById(id);
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const LINK = new URLSearchParams(location.search);              // deep links: ?tab=Flow  ?open=<card id>  ?card=<card id for Flow>  ?new=1&text=...  ?graph=<card id>
 let filt = {q: "", area: ""}, S = null;
-let tab = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings"].includes(LINK.get("tab")) ? LINK.get("tab") : "Board", shown = null, open = null, plannerId = null, flowCard = LINK.get("card"), picked = {}, dragging = null, busy = false, again = false, dropped = false;
+let tab = TABS.includes(LINK.get("tab")) ? LINK.get("tab") : "Board", shown = null, open = null, plannerId = null, flowCard = LINK.get("card"), picked = {}, dragging = null, busy = false, again = false, dropped = false;
 
 // Every piece of text from the server is added as a text node, never parsed as markup.
 // Handlers are properties (onclick = ...) so morph() can copy the newest closure onto an element that stays in the page.
@@ -361,6 +361,64 @@ async function renderSettings() {
   return h("div", {class: "grid two", style: "grid-template-columns:minmax(300px,1fr) minmax(300px,1fr)"}, checks, h("div", {class: "box", key: "s"}, h("h2", {class: "t"}, "Settings"), rows));
 }
 
+// ---------------------------------------------------------------- Git: what changed in your folder, commit what you pick, push and pull
+// The picks, the message and the open diff live here, so the refresh every 1.5 s never undoes what you are doing.
+let gitPick = {}, gitMsg = "", gitDiff = null, gitWork = "";
+function gitDo(what, path, body, after) {
+  gitWork = what; refresh(true);
+  api(path, body).then(r => { if (r.msg) toast(r.msg); if (after) after(r); }, e => toast(e.message)).finally(() => { gitWork = ""; refresh(true); });
+}
+function showDiff(path) {
+  gitDiff = {path, text: null};
+  refresh(true);
+  api("/api/git/diff?path=" + encodeURIComponent(path)).then(d => { if (gitDiff && gitDiff.path === path) { gitDiff = d; refresh(true); } }, e => { gitDiff = null; toast(e.message); refresh(true); });
+}
+async function renderGit() {
+  const g = await api("/api/git").catch(e => ({error: e.message}));
+  if (g.error) return h("div", {class: "box"}, h("div", {class: "empty"}, h("b", {}, "No git here"), g.error));
+  const paths = g.changes.map(c => c.path);
+  for (const p of Object.keys(gitPick)) if (!paths.includes(p)) delete gitPick[p];
+  paths.forEach(p => { if (!(p in gitPick)) gitPick[p] = true; });             // a new change is picked until you untick it
+  if (gitDiff && !paths.includes(gitDiff.path)) gitDiff = null;
+  const picked = paths.filter(p => gitPick[p]), lock = g.busy || gitWork, n = (k, one, many) => k + " " + (k === 1 ? one : many);
+  const commit = push => gitMsg.trim() ? gitDo("commit", "/api/git/commit", {message: gitMsg, paths: picked, push}, () => { gitMsg = ""; }) : toast("Write a commit message first");
+  const sync = h("div", {class: "box", key: "sync"},
+    h("h2", {class: "t"}, "Branch", h("span", {class: "n"}, g.upstream ? "tracks " + g.upstream : g.remotes.length ? "not published yet" : "no remote")),
+    h("div", {class: "row", style: "margin:0"}, h("b", {class: "mono"}, g.branch || "detached HEAD"),
+      g.upstream ? h("span", {class: "ev"}, n(g.ahead, "commit", "commits") + " to push, " + g.behind + " to pull (as of the last fetch)") : null),
+    h("div", {class: "row"},
+      h("button", {disabled: !!gitWork || !g.remotes.length, title: "Ask the remote what is new, change nothing here", onclick: () => gitDo("fetch", "/api/git/fetch", {})}, gitWork === "fetch" ? "Fetching…" : "Fetch"),
+      h("button", {disabled: !!lock || !g.upstream, title: "Bring the remote's new commits here (fast-forward only: never a merge)", onclick: () => gitDo("pull", "/api/git/pull", {})}, gitWork === "pull" ? "Pulling…" : "Pull"),
+      h("button", {disabled: !!lock || !g.remotes.length || (g.upstream && !g.ahead), title: g.upstream ? "Send your commits to " + g.upstream : "Publish this branch", onclick: () => gitDo("push", "/api/git/push", {})}, gitWork === "push" ? "Pushing…" : "Push")),
+    g.busy ? h("p", {class: "chip q", style: "margin-top:10px"}, g.busy) : null,
+    g.hooks ? null : h("p", {class: "ev"}, "Your git hooks do not run on these commits (Settings: Run my git hooks)."));
+  const rows = g.changes.map(c => h("div", {class: "gch", key: c.path},
+    h("input", {type: "checkbox", checked: !!gitPick[c.path], ariaLabel: "Commit " + c.label, onchange: ev => { gitPick[c.path] = ev.target.checked; refresh(true); }}),
+    h("span", {class: "chip gst " + c.color}, c.kind),
+    h("button", {class: "gitem" + (gitDiff && gitDiff.path === c.path ? " on" : ""), title: "Show what changed", onclick: () => showDiff(c.path)}, c.label)));
+  const changes = h("div", {class: "box", key: "changes"},
+    h("h2", {class: "t"}, "Changes", h("span", {class: "n"}, paths.length ? picked.length + " of " + paths.length + " picked" : "")),
+    paths.length ? h("label", {class: "chk", key: "all"}, h("input", {type: "checkbox", checked: picked.length === paths.length,
+      onchange: ev => { paths.forEach(p => { gitPick[p] = ev.target.checked; }); refresh(true); }}), "all") : null,
+    paths.length ? h("div", {class: "gchanges", key: "list"}, rows) : h("div", {class: "empty", key: "none"}, h("b", {}, "Nothing to commit"), "Your folder matches the last commit."),
+    g.more ? h("p", {class: "ev", key: "more"}, g.more + " more not listed: commit those in a terminal") : null,
+    h("label", {key: "ml"}, "Message"),
+    h("textarea", {key: "msg", placeholder: "What changed and why", value: gitMsg, style: "min-height:72px", oninput: ev => { gitMsg = ev.target.value; }}),
+    h("div", {class: "row", key: "go"}, h("button", {class: "primary", disabled: !!lock || !picked.length, onclick: () => commit(false)}, gitWork === "commit" ? "Committing…" : "Commit"),
+      h("button", {disabled: !!lock || !picked.length || !g.remotes.length, onclick: () => commit(true)}, "Commit & push")));
+  const line = t => h("span", {class: t.startsWith("@@") ? "h" : t[0] === "+" && !t.startsWith("+++") ? "a" : t[0] === "-" && !t.startsWith("---") ? "r" : ""}, t + "\n");
+  const diff = h("div", {class: "box", key: "diff"}, h("h2", {class: "t"}, gitDiff ? h("span", {class: "mono"}, gitDiff.path) : "Diff", gitDiff ? h("button", {class: "quiet", onclick: () => { gitDiff = null; refresh(true); }}, "Close") : null),
+    !gitDiff ? h("p", {class: "ev"}, "Click a file to see what changed in it.") : gitDiff.text === null ? h("div", {class: "sk", style: "height:64px"})
+      : gitDiff.text ? h("pre", {class: "gdiff gitdiff"}, gitDiff.text.split("\n").map(line)) : h("p", {class: "ev"}, "No change in the text (only its mode, or an empty file)."),
+    gitDiff && gitDiff.cut ? h("p", {class: "ev"}, "Too long to show whole: the rest is cut.") : null);
+  const hist = h("div", {class: "box", key: "log"}, h("h2", {class: "t"}, "History", h("span", {class: "n"}, g.upstream ? n(g.ahead, "commit", "commits") + " not pushed" : "")),
+    g.log.length ? h("div", {class: "scroll"}, h("table", {class: "tbl left"}, h("tr", {}, ["commit", "message", "author", "when", ""].map(t => h("th", {}, t))),
+      g.log.map(c => h("tr", {key: c.hash}, h("td", {class: "mono"}, c.hash), h("td", {}, c.subject), h("td", {}, c.author), h("td", {}, c.when),
+        h("td", {}, g.upstream && !c.pushed ? h("span", {class: "chip q"}, "to push") : null)))))
+      : h("p", {class: "ev"}, "No commit yet: pick your files and commit them."));
+  return h("div", {class: "grid two", style: "grid-template-columns:minmax(300px,460px) 1fr"}, h("div", {class: "grid"}, sync, changes), h("div", {class: "grid"}, diff, hist));
+}
+
 // ---------------------------------------------------------------- Change graph: one card's diff as the symbols it changed and what uses them
 // A full-screen <dialog>. The server sends the model (graph.py) already filtered and laid out (graphview.layout); the page only draws it,
 // SVG element by SVG element. Every name in it comes from the repository, so it only ever becomes text, never markup.
@@ -642,7 +700,7 @@ async function refresh() {
   try {
     const s = await api("/api/state"); S = s; renderHead(s); renderTabs(); setAreas(s.areas || []);
     const body = t === "Board" ? renderBoard(s) : t === "Flow" ? await renderFlow() : t === "Planner" ? await renderPlanner(s)
-      : t === "Agents" ? await renderAgents() : t === "AIs" ? await renderAIs() : await renderSettings();
+      : t === "Agents" ? await renderAgents() : t === "AIs" ? await renderAIs() : t === "Git" ? await renderGit() : await renderSettings();
     if (t !== tab) return;
     const logs = t === "Agents" ? [...document.querySelectorAll("pre.log")].map(p => [p.id, p.scrollTop + p.clientHeight >= p.scrollHeight - 4]) : [];
     const switched = shown !== t;
@@ -687,7 +745,7 @@ function showHelp() {
     h("p", {class: "ev"}, "You write a request in plain words. AIs plan it, build it, check it and review it; it is merged only when every reviewer approves. If anything is unclear, the card lands in Needs you with questions."),
     h("h4", {}, "The steps every card goes through"), steps(Object.entries(STAGE_HELP)),
     h("h4", {}, "Board columns"), steps([["Backlog", "Waiting its turn. Drag cards to set the order."], ["In progress", "An AI is working on it now."], ["Needs you", "Questions for you, or held by you. Answer them in the card."], ["Done", "Approved and merged."]]),
-    h("h4", {}, "Keys"), steps([["1 to 6", "switch tab"], ["n", "new request"], ["/", "filter cards"], ["t", "switch theme"], ["g", "change graph of the open card"], ["?", "this help"], ["Esc", "close a panel"]]),
+    h("h4", {}, "Keys"), steps([["1 to 7", "switch tab"], ["n", "new request"], ["/", "filter cards"], ["t", "switch theme"], ["g", "change graph of the open card"], ["?", "this help"], ["Esc", "close a panel"]]),
     h("h4", {}, "Change graph"), steps([["What", "The functions, classes and files a card changed, and what they use or are used by. Hotspots are the most connected changes: start there."],
       ["Keys", "drag to pan, wheel or + and - to zoom, f fit, l list, / search, Esc back"]]));
   hb.showModal();
@@ -718,7 +776,7 @@ document.addEventListener("keydown", e => {
   const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) || nb.open || hb.open;
   if (e.key === "Escape") { if (document.activeElement === $("q") && filt.q) { $("q").value = ""; filt.q = ""; refresh(true); } closeDrawer(); }
   else if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-  else if (/^[1-6]$/.test(e.key)) go(TABS[+e.key - 1]);
+  else if (/^[1-7]$/.test(e.key)) go(TABS[+e.key - 1]);
   else if (e.key === "n") { e.preventDefault(); $("newbtn").click(); }
   else if (e.key === "/") { e.preventDefault(); if (!["Board", "Planner"].includes(tab)) go("Board"); $("q").focus(); }
   else if (e.key === "t") cycleTheme();

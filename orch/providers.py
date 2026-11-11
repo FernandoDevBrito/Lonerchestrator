@@ -7,6 +7,8 @@ A provider is a dict:
     extra_args   always added
     edit_args    added when the role must edit project files (planner, builder, retro, splitter)
     read_args    added when the role must only read (reviewers, suggestions)
+    dir_args     added once per folder outside the project the agent works with (its card's board, context, memory, the run's files),
+                 "{dir}" is replaced, e.g. ["--add-dir", "{dir}"]; a CLI without them must be able to reach those paths by itself
     prompt_via   "arg" (default: the prompt is the last argument) or "stdin"
     prompt_flag  flag placed before the prompt when prompt_via is "arg", e.g. "-p"
     stdin_marker args added when the prompt comes from stdin, e.g. ["-"]
@@ -37,12 +39,13 @@ PRESETS = {
             "prompt_flag": "-p", "edit_args": ["--mode", "accept-edits"], "read_args": [], "output": "agy-json", "can_edit": True, "models": [],
             "models_cmd": ["agy", "models"], "models_style": "tab", "tested": True},
     "codex": {"name": "OpenAI Codex CLI", "exe": "codex", "cmd": ["codex", "exec"], "model_args": ["-m", "{model}"],
-              "edit_args": ["--sandbox", "workspace-write"], "read_args": ["--sandbox", "read-only"],
+              "edit_args": ["--sandbox", "workspace-write"], "read_args": ["--sandbox", "read-only"], "dir_args": ["--add-dir", "{dir}"],
               "effort_args": ["-c", "model_reasoning_effort={effort}"], "efforts": ["low", "medium", "high"],
               "prompt_via": "stdin", "stdin_marker": ["-"], "can_edit": True, "models": [DEFAULT_MODEL], "tested": False,
               "usage": {"total_regex": r"tokens used\D+([\d,]+)"}},
     "gemini": {"name": "Gemini CLI", "exe": "gemini", "cmd": ["gemini"], "model_args": ["-m", "{model}"],
                "edit_args": ["--approval-mode", "auto_edit"], "read_args": ["--approval-mode", "plan"], "prompt_flag": "-p",
+               "dir_args": ["--include-directories", "{dir}"],
                "can_edit": True, "models": [DEFAULT_MODEL], "tested": False},
     "ollama": {"name": "Ollama (local models)", "exe": "ollama", "cmd": ["ollama", "run"], "model_args": ["{model}"], "prompt_via": "stdin",
                "can_edit": False, "models": [], "models_cmd": ["ollama", "list"], "login_hint": "run `ollama pull <model>` once, then press d", "models_style": "table", "tested": False,
@@ -85,8 +88,9 @@ def effort_for(spec, effort):
     return effort if not allowed or effort in allowed else allowed[-1]
 
 
-def build_argv(spec, model, prompt, mode, effort=None):
-    """(argv, stdin_text) for one call. mode is "edit" (may change project files) or "read" (must not)."""
+def build_argv(spec, model, prompt, mode, effort=None, dirs=()):
+    """(argv, stdin_text) for one call. mode is "edit" (may change project files) or "read" (must not). `dirs`: the folders outside the
+    project the agent works with (see dir_args)."""
     if spec.get("native"):
         raise ValueError(f"{spec['id']} is native: it is driven by its own runner")
     if mode == "edit" and not spec["can_edit"]:
@@ -98,6 +102,8 @@ def build_argv(spec, model, prompt, mode, effort=None):
         argv += [a.replace("{effort}", e) for a in spec["effort_args"]]
     argv += spec.get("extra_args", [])
     argv += spec.get("edit_args" if mode == "edit" else "read_args", [])
+    for d in dirs:
+        argv += [a.replace("{dir}", str(d)) for a in spec.get("dir_args", [])]
     if spec["prompt_via"] == "stdin":
         argv += spec.get("stdin_marker", [])
         stdin = prompt

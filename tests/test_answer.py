@@ -1,4 +1,4 @@
-from conftest import CARD
+from conftest import CARD, home
 from test_pipeline import TASKS, Fake, names
 
 from orch import answer, tui
@@ -10,7 +10,7 @@ ASKED = CARD.replace("## Blockers / questions\n", "## Blockers / questions\n1. W
 
 
 def blocked_card(project, name="001-thing", text=ASKED):
-    f = project / "board" / "blocked" / f"{name}.md"
+    f = home(project) / "board" / "blocked" / f"{name}.md"
     f.write_text(text, encoding="utf-8")
     return Card(f)
 
@@ -63,7 +63,7 @@ class AskingFake(Fake):
         if role != "planner":
             return super().claude(role, agent, prompt, model)
         self.calls.append(role)
-        card = Card(next(self.p.glob("board/doing/*.md")))
+        card = Card(next(home(self.p).glob("board/doing/*.md")))
         if "-> CSV" in card.section("Answers"):
             self.seen = card.section("Answers")
             card.path.write_text(card.text().replace("## Tasks\n", TASKS), encoding="utf-8")
@@ -78,7 +78,7 @@ def test_full_cycle_ask_answer_run_again(project, cfg, log):
     fake = AskingFake(project)
     assert Pipeline(project, cfg, log, fake).run() == 0
     assert names(project, "blocked") == ["001-thing.md"]
-    card = Card(project / "board" / "blocked" / "001-thing.md")
+    card = Card(home(project) / "board" / "blocked" / "001-thing.md")
     assert answer.apply(card, answer.questions(card), ["CSV", "out/"])
     from orch.events import Log
     assert Pipeline(project, cfg, Log(project, echo=False), fake).run() == 0
@@ -104,7 +104,7 @@ def test_panel_answer_mode_types_submits_and_requeues(project):
     assert ui.mode == "answer" and ui.ans == ["quiCSV"]
     press(*"out/", "\r")
     assert ui.mode is None and "queued" in ui.msg
-    card = Card(project / "board" / "backlog" / "001-thing.md")
+    card = Card(home(project) / "board" / "backlog" / "001-thing.md")
     assert "-> quiCSV" in card.section("Answers") and "-> out/" in card.section("Answers")
     assert card.section("Blockers") == ""
 
@@ -122,7 +122,7 @@ def test_panel_answer_cancel_and_guards(project):
     assert ui.mode == "answer"
     tui.handle("x", ui, tui.Ctx(project, ui), None)
     tui.handle("\x1b", ui, tui.Ctx(project, ui), None)
-    assert ui.mode is None and (project / "board" / "blocked" / "002-q.md").exists() and "cancelled" in ui.msg
+    assert ui.mode is None and (home(project) / "board" / "blocked" / "002-q.md").exists() and "cancelled" in ui.msg
 
 
 def test_cli_answer_command(project, monkeypatch, capsys):
@@ -131,5 +131,5 @@ def test_cli_answer_command(project, monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda *_: next(given))
     assert main(["-C", str(project), "answer", "001"]) == 0
     assert "back in the backlog" in capsys.readouterr().out
-    assert "-> json" in Card(project / "board" / "backlog" / "001-thing.md").section("Answers")
+    assert "-> json" in Card(home(project) / "board" / "backlog" / "001-thing.md").section("Answers")
     assert main(["-C", str(project), "answer"]) == 1                # nothing blocked any more

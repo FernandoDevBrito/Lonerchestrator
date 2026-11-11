@@ -4,6 +4,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import folder
 from .safe import clean
 
 STREAMS = ("pipeline", "planner", "builder", "qa", "cross", "retro")
@@ -12,21 +13,21 @@ ALIAS = {"splitter": "planner"}   # splitter shares the planner pane
 
 class Log:
     def __init__(self, project, echo=True):
+        """Everything lands in the project's folder (folder.py): runs/<run>/ (events, artifacts), streams/, log.md, state.json."""
         self.project = Path(project)
-        self.root = self.project / ".orchestrator"
+        self.root = folder.of(project)
         self.run_id = time.strftime("%Y%m%d-%H%M%S")
         self.dir = self.root / "runs" / self.run_id
         self.streams_dir = self.root / "streams"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.streams_dir.mkdir(exist_ok=True)
-        self.table = self.project / "board" / "_log.md"
+        self.table = self.root / "log.md"
         self.echo = echo
         self._lock = threading.RLock()
         self._active = {}                    # cards being worked on right now (several when cards run in parallel): id -> phase
         for s in STREAMS:
             (self.streams_dir / f"{s}.log").write_text(f"--- run {self.run_id} ---\n", encoding="utf-8")
         if not self.table.exists():
-            self.table.parent.mkdir(exist_ok=True)
             self.table.write_text("| time | card | agent | result | duration |\n|---|---|---|---|---|\n", encoding="utf-8")
 
     def say(self, stream, text):

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from conftest import CARD, add_card
+from conftest import CARD, add_card, home
 from test_pipeline import Fake, names
 
 from orch import answer, tui
@@ -21,7 +21,7 @@ WITH_OPTIONS = ("1. Which output format should the report use?\n"
 
 
 def blocked(project, questions=WITH_OPTIONS, name="001-thing"):
-    f = project / "board" / "blocked" / f"{name}.md"
+    f = home(project) / "board" / "blocked" / f"{name}.md"
     f.write_text(CARD.replace("## Blockers / questions\n", "## Blockers / questions\n" + questions), encoding="utf-8")
     return Card(f)
 
@@ -40,7 +40,7 @@ def test_missing_options_flags_questions_that_ignore_the_format(project):
     assert answer.missing_options(blocked(project, "1. Which format?\n2. Where?\n", "001-a")) is True              # old style, no suggestions
     assert answer.missing_options(blocked(project, "1. Which format?\n   a) csv\n   b) json\n", "002-b")) is True   # only two
     assert answer.missing_options(blocked(project, "It is not clear what fast means.\n", "003-c")) is True          # free text
-    none = Card(project / "board" / "blocked" / "004-d.md")
+    none = Card(home(project) / "board" / "blocked" / "004-d.md")
     none.path.write_text(CARD, encoding="utf-8")
     assert answer.parse(none) == [] and answer.missing_options(none) is False
 
@@ -82,7 +82,7 @@ def test_number_keys_pick_a_suggestion_and_move_to_the_next_question(project):
     assert ui.ans == ["CSV file in out/report.csv"] and ui.mode == "answer" and ui.buf == ""
     press(project, ui, "1")                                                  # last question: picking it finishes everything
     assert ui.mode is None and "queued" in ui.msg
-    c = Card(project / "board" / "backlog" / "001-thing.md")
+    c = Card(home(project) / "board" / "backlog" / "001-thing.md")
     assert "-> CSV file in out/report.csv" in c.section("Answers") and "-> out/" in c.section("Answers")
 
 
@@ -94,8 +94,8 @@ def test_typing_your_own_answer_still_works_and_digits_are_text_once_typing_star
     assert ui.ans == ["HTML2"]
     press(project, ui, "7", *" files", "\r")                                 # a digit with no such suggestion is text too
     assert ui.mode is None
-    assert "-> HTML2" in Card(project / "board" / "backlog" / "001-thing.md").section("Answers") and "-> 7 files" in Card(
-        project / "board" / "backlog" / "001-thing.md").section("Answers")
+    assert "-> HTML2" in Card(home(project) / "board" / "backlog" / "001-thing.md").section("Answers") and "-> 7 files" in Card(
+        home(project) / "board" / "backlog" / "001-thing.md").section("Answers")
 
 
 def test_questions_without_suggestions_keep_the_old_behaviour(project):
@@ -114,7 +114,7 @@ def test_backspace_after_a_pick_does_not_reappear_and_escape_cancels(project):
     press(project, ui, "a", "x", "\x7f", "3")                                # typed then erased: buffer empty again, so 3 picks
     assert ui.ans == ["Markdown file in out/report.md"]
     press(project, ui, "\x1b")
-    assert ui.mode is None and (project / "board" / "blocked" / "001-thing.md").exists()
+    assert ui.mode is None and (home(project) / "board" / "blocked" / "001-thing.md").exists()
 
 
 # ---- the terminal command ------------------------------------------------------------------------------------------
@@ -125,7 +125,7 @@ def test_cli_answer_shows_suggestions_and_accepts_numbers_or_text(project, monke
     assert main(["-C", str(project), "answer", "001"]) == 0
     out = capsys.readouterr().out
     assert "1) Plain text summary on stdout" in out and "2) CSV file in out/report.csv" in out and "Type 1-3" in out
-    c = Card(project / "board" / "backlog" / "001-thing.md")
+    c = Card(home(project) / "board" / "backlog" / "001-thing.md")
     assert "-> CSV file in out/report.csv" in c.section("Answers") and "-> my own folder" in c.section("Answers")
 
 
@@ -133,9 +133,9 @@ def test_cli_answer_shows_suggestions_and_accepts_numbers_or_text(project, monke
 def test_agent_instructions_ask_for_three_suggested_answers():
     base = ROOT / "orch" / "templates"
     for agent in ("backend", "frontend", "splitter"):
-        text = (base / "dot-claude" / "agents" / f"{agent}.md").read_text(encoding="utf-8")
+        text = (base / "agents" / f"{agent}.md").read_text(encoding="utf-8")
         assert "exactly THREE suggested answers" in text and "a) <concrete suggested answer>" in text, agent
-    assert "three suggested answers" in (base / "dot-claude" / "skills" / "card-workflow" / "SKILL.md").read_text(encoding="utf-8")
+    assert "three suggested answers" in (base / "rules.md").read_text(encoding="utf-8")
     assert "3 suggested answers" in (base / "board" / "_TEMPLATE.md").read_text(encoding="utf-8")
 
 
@@ -150,7 +150,7 @@ class AsksWith(Fake):
         if role != "planner":
             return super().claude(role, agent, prompt, model)
         self.calls.append(role)
-        Card(next(self.p.glob("board/doing/*.md"))).set_section("Blockers", self.questions)
+        Card(next(home(self.p).glob("board/doing/*.md"))).set_section("Blockers", self.questions)
         return "RESULT: BLOCKED"
 
 
@@ -158,11 +158,11 @@ def test_the_card_log_notes_when_an_agent_ignored_the_suggestions_format(project
     add_card(project)
     assert Pipeline(project, cfg, log, AsksWith(project, "1. Which format?\n2. Where?")).run() == 0
     assert names(project, "blocked") == ["001-thing.md"]
-    assert "no 3 suggested answers" in Card(project / "board" / "blocked" / "001-thing.md").section("Status log")
+    assert "no 3 suggested answers" in Card(home(project) / "board" / "blocked" / "001-thing.md").section("Status log")
 
 
 def test_no_note_when_the_agent_followed_the_format(project, cfg, log):
     add_card(project)
     Pipeline(project, cfg, log, AsksWith(project, WITH_OPTIONS)).run()
-    assert "no 3 suggested answers" not in Card(project / "board" / "blocked" / "001-thing.md").section("Status log")
-    assert [q.options for q in answer.parse(Card(project / "board" / "blocked" / "001-thing.md"))][0][0] == "Plain text summary on stdout"
+    assert "no 3 suggested answers" not in Card(home(project) / "board" / "blocked" / "001-thing.md").section("Status log")
+    assert [q.options for q in answer.parse(Card(home(project) / "board" / "blocked" / "001-thing.md"))][0][0] == "Plain text summary on stdout"

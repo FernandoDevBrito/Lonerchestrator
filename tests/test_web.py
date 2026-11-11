@@ -1,10 +1,11 @@
 """The local kanban page: API behaviour, understanding a request, and the checks that keep other web pages out."""
 import http.client
 import json
+import subprocess
 import threading
 
 import pytest
-from conftest import CARD, add_card
+from conftest import CARD, add_card, home, sh
 
 from orch import intake, web
 from orch.board import Board
@@ -87,7 +88,7 @@ def test_card_detail_and_answering_blocked_questions(server, project):
     assert call("POST", "/api/answer", {"id": "002-q", "answers": []})[0] == 400                        # wrong number of answers
     assert j(call("POST", "/api/answer", {"id": "002-q", "answers": ["2"]}))["queued"] and runner.started == 1
     assert [c.id for c in Board(project).cards("backlog")] == ["002-q"]
-    assert "json" in Card(project / "board" / "backlog" / "002-q.md").section("Answers")             # '2' picked the 2nd suggestion
+    assert "json" in Card(home(project) / "board" / "backlog" / "002-q.md").section("Answers")             # '2' picked the 2nd suggestion
     assert call("POST", "/api/answer", {"id": "002-q", "answers": ["x"]})[0] == 400                    # not blocked any more
 
 
@@ -96,7 +97,7 @@ def test_requeue_only_blocked_cards(server, project):
     from orch.board import Card
     add_card(project)
     assert call("POST", "/api/requeue", {"id": "001-thing"})[0] == 400
-    Card(project / "board" / "backlog" / "001-thing.md").move("blocked")
+    Card(home(project) / "board" / "backlog" / "001-thing.md").move("blocked")
     assert call("POST", "/api/requeue", {"id": "001-thing"})[0] == 200
     assert len(Board(project).cards("backlog")) == 1
 
@@ -136,9 +137,9 @@ def test_drag_and_drop_moves_follow_the_rules(server, project):
     assert j(call("POST", "/api/move", {"id": "001-a", "to": "blocked"}))["to"] == "blocked"         # hold a card
     assert [c.id for c in Board(project).cards("blocked")] == ["001-a"]
     assert j(call("POST", "/api/move", {"id": "001-a", "to": "backlog"}))["to"] == "backlog"
-    Card(project / "board" / "backlog" / "002-b.md").move("done")
+    Card(home(project) / "board" / "backlog" / "002-b.md").move("done")
     assert call("POST", "/api/move", {"id": "002-b", "to": "backlog"})[0] == 200                     # redo a finished card
-    Card(project / "board" / "backlog" / "002-b.md").move("doing")
+    Card(home(project) / "board" / "backlog" / "002-b.md").move("doing")
     runner.running = lambda: True
     assert call("POST", "/api/move", {"id": "002-b", "to": "backlog"})[0] == 409                     # being worked on: hands off
     assert call("POST", "/api/move", {"id": "nope", "to": "blocked"})[0] == 404
@@ -159,7 +160,7 @@ def test_flow_agents_ais_and_settings_tabs(server, project):
 
     from orch import intro
     call, *_ = server
-    root = project / ".orchestrator"
+    root = home(project)
     (root / "runs" / "r1").mkdir(parents=True)
     (root / "state.json").write_text(_json.dumps({"run": "r1", "card": "001-a", "phase": "review 1", "active": {"001-a": "review 1"}}))
     ev = [{"ts": "2026-01-01 10:00:00", "kind": "build", "card": "001-a", "agent": "backend", "result": "attempt 1: done"},
@@ -212,12 +213,77 @@ def test_the_route_table_is_the_api_surface(server):
     expected = {("GET", "/api/state"), ("GET", "/api/card/"), ("GET", "/api/flow"), ("GET", "/api/agents"), ("GET", "/api/ais"), ("GET", "/api/settings"),
                 ("POST", "/api/new"), ("POST", "/api/answer"), ("POST", "/api/suggest"), ("POST", "/api/requeue"), ("POST", "/api/move"), ("POST", "/api/reorder"),
                 ("POST", "/api/ais/toggle"), ("POST", "/api/ais/assign"), ("POST", "/api/ais/detect"), ("POST", "/api/ais/limits"), ("POST", "/api/budget"),
-                ("POST", "/api/settings/set"), ("POST", "/api/context"), ("POST", "/api/run"), ("POST", "/api/stop"), ("GET", "/api/graph/")}
+                ("POST", "/api/settings/set"), ("POST", "/api/context"), ("POST", "/api/run"), ("POST", "/api/stop"), ("GET", "/api/graph/"),
+                ("GET", "/api/git"), ("GET", "/api/git/diff"), ("POST", "/api/git/commit"), ("POST", "/api/git/push"), ("POST", "/api/git/pull"), ("POST", "/api/git/fetch")}
     assert set(webcore.ROUTES) == expected
     assert webcore.find_route("GET", "/api/card/001-x") == ("card", "tail", "001-x") and webcore.find_route("GET", "/api/card/") is None
     assert webcore.find_route("POST", "/api/state") is None and webcore.find_route("GET", "/api/nope") is None
     call, *_ = server
     assert call("GET", "/api/nope")[0] == 404 and call("POST", "/api/state", {})[0] == 404
+
+
+def git_out(project, *a):
+    return subprocess.run(["git", *a], cwd=project, capture_output=True, text=True, check=True).stdout
+
+
+def test_git_tab_shows_each_diff_and_commits_only_the_files_you_pick(server, project):
+    call, *_ = server
+    (project / ".gitignore").write_text("__pycache__/\nchanged\n")                    # tracked, edited
+    (project / "new [1].py").write_text("x = 1\n")                                    # untracked; [ ] would be a pattern to git
+    (project / "new 1.py").write_text("y = 2\n")                                      # what that pattern would also catch
+    (project / "mine.txt").write_text("staged by me\n")
+    sh(project, "git", "add", "mine.txt")                                             # the user's own staging: not picked, stays staged
+    g = j(call("GET", "/api/git"))
+    assert g["branch"] == "main" and g["busy"] == "" and g["upstream"] == "" and g["log"][0]["subject"] == "init"
+    assert {c["path"]: c["kind"] for c in g["changes"]} == {".gitignore": "modified", "new [1].py": "new", "new 1.py": "new", "mine.txt": "added"}
+    assert "+changed" in j(call("GET", "/api/git/diff?path=.gitignore"))["text"]
+    assert j(call("GET", "/api/git/diff?path=new%20%5B1%5D.py"))["text"] == "+x = 1"
+    assert call("GET", "/api/git/diff?path=..%2F..%2Fsecret.txt")[0] == 404                        # only a file git lists as changed is ever read
+    assert call("POST", "/api/git/commit", {"message": " ", "paths": ["new 1.py"]})[0] == 400
+    assert call("POST", "/api/git/commit", {"message": "x", "paths": ["gone.py"]})[0] == 409
+    assert "committed 2 file(s)" in j(call("POST", "/api/git/commit", {"message": "add it\n\nwith a body", "paths": ["new [1].py", ".gitignore"]}))["msg"]
+    assert sorted(git_out(project, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()) == [".gitignore", "new [1].py"]
+    assert sorted(git_out(project, "status", "--porcelain").splitlines()) == ['?? "new 1.py"', "A  mine.txt"]
+
+
+def test_git_tab_pushes_pulls_and_marks_what_is_not_pushed(server, project, tmp_path):
+    call, *_ = server
+    remote, other = tmp_path / "remote.git", tmp_path / "other"
+    sh(tmp_path, "git", "init", "-q", "--bare", "-b", "main", str(remote))
+    assert call("POST", "/api/git/push", {})[0] == 400 and call("POST", "/api/git/fetch", {})[0] == 400      # no remote yet
+    sh(project, "git", "remote", "add", "origin", str(remote))
+    assert call("POST", "/api/git/pull", {})[0] == 400                                                         # nothing published yet
+    assert "pushed" in j(call("POST", "/api/git/push", {}))["msg"]                                            # the first push publishes the branch
+    (project / "a.py").write_text("a = 1\n")
+    j(call("POST", "/api/git/commit", {"message": "a", "paths": ["a.py"]}))
+    g = j(call("GET", "/api/git"))
+    assert g["upstream"] == "origin/main" and g["ahead"] == 1 and [c["pushed"] for c in g["log"]] == [False, True]
+    assert "pushed" in j(call("POST", "/api/git/push", {}))["msg"] and j(call("GET", "/api/git"))["ahead"] == 0
+    sh(tmp_path, "git", "clone", "-q", str(remote), str(other))                                                 # someone else pushes a commit
+    (other / "b.py").write_text("b = 1\n")
+    sh(other, "git", "add", "b.py")
+    sh(other, "git", "-c", "user.email=o@o", "-c", "user.name=o", "commit", "-qm", "b")
+    sh(other, "git", "push", "-q")
+    assert j(call("POST", "/api/git/fetch", {}))["msg"] == "fetched" and j(call("GET", "/api/git"))["behind"] == 1
+    assert "pulled" in j(call("POST", "/api/git/pull", {}))["msg"] and (project / "b.py").exists()
+
+
+def test_git_tab_keeps_its_hands_off_while_a_card_is_built_in_the_folder(server, project):
+    call, *_ = server
+    sh(project, "git", "checkout", "-q", "-b", "card/001-x")
+    (project / "x.py").write_text("x\n")
+    assert "card/001-x" in j(call("GET", "/api/git"))["busy"]
+    for path, body in (("/api/git/commit", {"message": "m", "paths": ["x.py"]}), ("/api/git/push", {}), ("/api/git/pull", {})):
+        assert call("POST", path, body)[0] == 409, path
+    assert git_out(project, "log", "-1", "--format=%s").strip() == "init"
+
+
+def test_a_stopped_run_says_why(project):
+    r = web.ProcRunner(project, "main")
+    r.r.proc = type("P", (), {"returncode": 1, "poll": lambda self: 1})()
+    home(project).mkdir(parents=True, exist_ok=True)
+    (home(project) / "run.out").write_text("starting\nyou have uncommitted changes on side: switch to main\n", encoding="utf-8")
+    assert r.message() == "stopped (code 1): you have uncommitted changes on side: switch to main"
 
 
 def test_the_page_keeps_its_plain_style():

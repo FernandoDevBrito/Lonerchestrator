@@ -3,9 +3,11 @@ Every check is (status, title, hint) with status ok | warn | fail. Pure and chea
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 
-from . import config, providers, scout, trust
+from . import config, folder, providers, scout, trust
+from .board import Board
 from .gitops import Git
 
 PLACEHOLDER = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -23,7 +25,7 @@ def _claude_trusts(project, claude_json):
 
 def _ais(project):
     try:
-        return json.loads((Path(project) / ".orchestrator" / "ais.json").read_text(encoding="utf-8")).get("ais", {})
+        return json.loads((folder.of(project) / "ais.json").read_text(encoding="utf-8")).get("ais", {})
     except (OSError, ValueError):
         return {}
 
@@ -43,11 +45,16 @@ def check_git(e):
     git = Git(e.project)
     if git.run("rev-parse", "--is-inside-work-tree", check=False).returncode != 0:
         return [("fail", "Git repository", "run `git init` and make a first commit")]
-    if not git.has_branch(e.cfg["base"]):
-        return [("fail", f"Base branch '{e.cfg['base']}'", "pick an existing branch in Settings, or make a first commit")]
+    base = e.cfg["base"]
+    if not git.has_branch(base):
+        return [("fail", f"Base branch '{base}'", "pick an existing branch in Settings, or make a first commit (Git tab of the web page)")]
     if not git.clean():
-        return [("warn", "Uncommitted changes", "commit or stash: the orchestrator needs a clean working tree")]
-    return [("ok", f"Git: base '{e.cfg['base']}', tree clean", "")]
+        on = git.branch()
+        if on != base:
+            return [("warn", f"Uncommitted changes on '{on or 'a detached HEAD'}'", f"switch to '{base}' or commit them: approved cards are merged into '{base}'")]
+        return [("ok", f"Git: base '{base}', uncommitted changes", "fine: yours stay as they are. Cards are built from the last commit in "
+                 "their own worktree, so the agents do not see them, and land without touching them")]
+    return [("ok", f"Git: base '{base}', tree clean", "")]
 
 
 def check_ais(e):
@@ -58,7 +65,7 @@ def check_ais(e):
     for pid in used:
         c, name = e.ais.get(pid), reg.get(pid, {}).get("name", pid)
         if pid not in reg:
-            out.append(("fail", f"'{pid}' is used by a role but not defined", "pick another AI in the AIs tab, or define it under `providers` in .orchestrator/config.json"))
+            out.append(("fail", f"'{pid}' is used by a role but not defined", "pick another AI in the AIs tab, or define it under `providers` in the config"))
         elif not c:
             out.append(("warn", f"{name} not checked yet", "open the AIs tab and press d"))
         elif not c.get("installed"):
@@ -78,8 +85,11 @@ def check_reviewers(e):
 
 
 def check_ci(e):
-    first = e.cfg["ci"].split()
-    script = e.project / first[1] if len(first) > 1 and first[0] in ("bash", "sh") else None
+    try:
+        first = shlex.split(folder.render(e.cfg["ci"], folder.of(e.project), e.cfg))
+    except ValueError:                                      # unbalanced quotes: the shell will say what is wrong
+        first = []
+    script = e.project / first[1] if len(first) > 1 and first[0] in ("bash", "sh") else None     # an absolute path stays itself
     if script and not script.is_file():
         return [("fail", f"{first[1]} is missing", "create it (lint + tests + build, exit 1 on failure) or change the CI command in Settings")]
     if not trust.is_trusted(e.project, e.cfg):
@@ -102,16 +112,17 @@ def check_claude_folder(e):
 
 
 def check_backlog(e):
-    n = len(list((e.project / "board" / "backlog").glob("*.md")))
+    n = len(list((Board(e.project).root / "backlog").glob("*.md")))
     return [("ok", f"{n} card(s) in the backlog", "")] if n else [("warn", "No cards yet", 'add one: `lonerchestrator new "title"`')]
 
 
 def check_agents(e):
     """Every area's agent needs its role file: Claude Code runs it, every other AI gets its text in the prompt."""
-    missing = sorted({a for a in e.cfg["agents"].values() if not (e.project / ".claude" / "agents" / f"{a}.md").is_file()})
+    agents = folder.of(e.project) / "agents"
+    missing = sorted({a for a in e.cfg["agents"].values() if not (agents / f"{a}.md").is_file()})
     if not missing:
         return [("ok", f"Agents for every area ({', '.join(config.areas(e.cfg))})", "")]
-    return [("warn", "No role file for agent " + ", ".join(missing), "run `lonerchestrator init` (it adds missing files and keeps yours), or write .claude/agents/<name>.md")]
+    return [("warn", "No role file for agent " + ", ".join(missing), f"run `lonerchestrator init` (it adds missing files and keeps yours), or write {agents.as_posix()}/<name>.md")]
 
 
 CHECKS = [check_git, check_ais, check_reviewers, check_ci, check_context, check_claude_folder, check_agents, check_backlog]

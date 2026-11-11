@@ -5,10 +5,10 @@ import time
 from argparse import Namespace
 
 import pytest
-from conftest import sh
+from conftest import home, sh
 from test_web import server  # noqa: F401  (the local web server fixture)
 
-from orch import checks, cli, scout
+from orch import checks, cli, config, scout
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def repo(project):
 GOOD = ("```markdown\n# Project context\n- What it is: A small web shop (React + Python API).\n- Stack: TypeScript/React, Python.\n"
         "- How to run / test / lint / build (one command each): npm test; npm run lint; npm run build; python -m pytest.\n"
         "- Conventions (naming, structure, style): src/ for the front end, tests/ for Python tests.\n"
-        "- Things agents must never do here: edit scripts/, .claude/, CLAUDE.md, deploy, commit secrets.\n```")
+        "- Things agents must never do here: edit .claude/, CLAUDE.md, deploy, commit secrets.\n```")
 
 
 def test_facts_come_from_the_repository_and_never_from_secrets(repo):
@@ -40,15 +40,14 @@ def test_facts_come_from_the_repository_and_never_from_secrets(repo):
     assert "TypeScript (React)" in text and "Python" in text and "npm test" in text and "npm run lint" in text and "python -m pytest" in text
     assert "A small web shop" in text and "tests" in f["tests"] and "react" in text
     assert "sk-live" not in text and ".env" not in text                                          # secrets are never read nor listed
-    assert "board/" not in text                                                                    # the orchestrator's own cards are not the project
 
 
 def test_without_an_ai_the_facts_are_written_as_they_are(repo):
     assert not scout.filled(repo)
     content, source = scout.study(repo, use_ai=False)
     assert source == "basic" and "npm test" in content and "Stack:" in content and "never do here" in content
-    (repo / "context").mkdir(exist_ok=True)
-    (repo / "context" / "project.md").write_text(content, encoding="utf-8")
+    (home(repo) / "context").mkdir(exist_ok=True)
+    (home(repo) / "context" / "project.md").write_text(content, encoding="utf-8")
     assert scout.filled(repo) and not [c for c in checks.readiness(repo) if "project.md is empty" in c[1]]
 
 
@@ -62,27 +61,21 @@ def test_an_ai_draft_is_used_only_when_it_has_the_five_bullets(repo):
     assert "<<<FACTS" in scout.prompt(scout.gather(repo))                                          # the facts are fenced as data
 
 
-def test_ensure_writes_commits_and_never_overwrites(repo):
+def test_ensure_writes_into_the_folder_and_never_overwrites(repo):
     say = []
     assert scout.ensure(repo, ask=lambda p: GOOD, say=say.append) == "ai"
-    f = repo / "context" / "project.md"
-    assert "React" in f.read_text(encoding="utf-8") and "context: project overview" in subprocess.run(["git", "log", "-1", "--format=%s"], cwd=repo, capture_output=True, text=True).stdout
-    assert subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout.strip() == ""      # clean: a run can start
+    f = home(repo) / "context" / "project.md"
+    assert "React" in f.read_text(encoding="utf-8") and "add shop" in subprocess.run(["git", "log", "-1", "--format=%s"], cwd=repo, capture_output=True, text=True).stdout
+    assert subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout.strip() == ""      # no file, no commit in the project
     f.write_text(f.read_text(encoding="utf-8") + "- My own rule: always use tabs\n", encoding="utf-8")
     assert scout.ensure(repo, ask=lambda p: GOOD, say=say.append) is None                           # filled: left alone
     assert "always use tabs" in f.read_text(encoding="utf-8")
     assert scout.ensure(repo, ask=lambda p: GOOD, force=True, say=say.append) == "ai" and "always use tabs" not in f.read_text(encoding="utf-8")
 
 
-def test_a_dirty_tree_gets_the_file_but_no_commit(repo):
-    (repo / "api.py").write_text("x = 2\n", encoding="utf-8")                                      # the user is mid-work
-    scout.ensure(repo, use_ai=False, say=lambda *_: None)
-    assert scout.filled(repo)
-    assert "api.py" in subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
-    assert "context: project overview" not in subprocess.run(["git", "log", "-1", "--format=%s"], cwd=repo, capture_output=True, text=True).stdout
-
-
 def test_context_command(repo, capsys):
+    assert cli.cmd_context(Namespace(force=False, basic=True), repo) == 1 and "lonerchestrator init" in capsys.readouterr().out
+    config.write_raw(repo, {"base": "main"})                                                       # what `init` writes
     assert cli.cmd_context(Namespace(force=False, basic=True), repo) == 0
     assert scout.filled(repo)
     capsys.readouterr()

@@ -5,9 +5,9 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 model: sonnet
 ---
 
-You implement cards for this project. Follow CLAUDE.md. The prompt tells you the PHASE and the card path.
+You implement cards for this project. Follow the project rules. The prompt tells you the PHASE and the card path.
 
-Always first: read the card, `memory/backend.md`, `context/project.md` and `context/decisions.md` (if they exist).
+Always first: read the card, `{folder}/memory/backend.md`, `{folder}/context/project.md` and `{folder}/context/decisions.md` (if they exist).
 If the card has an `## Answers` section, those are the USER's answers to your earlier questions: treat them as part of the requirements, do not ask the same thing again, and only ask NEW questions if something is still missing.
 
 ## PHASE=PLAN
@@ -28,9 +28,9 @@ If the card has an `## Answers` section, those are the USER's answers to your ea
 
 ## PHASE=IMPLEMENT
 - Work the tasks in order, tick each (`- [x]`) when its check passes. Write tests that prove each acceptance criterion. Stay in scope; "Out of scope" is binding.
-- Run the project CI (`bash scripts/ci.sh`) and fix until green. If feedback from a previous attempt is provided, fix exactly those failures.
-- Never commit, merge, switch branches, push, or edit scripts/.claude/CLAUDE.md/GEMINI.md.
-- A non-obvious choice future cards must respect (a library, a pattern, a trade-off)? Add ONE line to `context/decisions.md`: `- YYYY-MM-DD: <decision>. Why: <reason>. (card <id>)`. If the stack or the commands changed, update `context/project.md`.
-- Last: append 1-3 concrete lessons to `memory/backend.md` (only if new and useful).
+- Run the project CI (`{ci}`) and fix until green. If feedback from a previous attempt is provided, fix exactly those failures.
+- Never commit, merge, switch branches, push, or edit .claude/, CLAUDE.md or GEMINI.md.
+- A non-obvious choice future cards must respect (a library, a pattern, a trade-off)? Add ONE line to `{folder}/context/decisions.md`: `- YYYY-MM-DD: <decision>. Why: <reason>. (card <id>)`. If the stack or the commands changed, update `{folder}/context/project.md`.
+- Last: append 1-3 concrete lessons to `{folder}/memory/backend.md` (only if new and useful).
 - If you discover the card is actually ambiguous, write questions in the card and end with `RESULT: BLOCKED`. Otherwise end with `RESULT: DONE`.
 - You never judge whether your work is good enough; reviewers do.

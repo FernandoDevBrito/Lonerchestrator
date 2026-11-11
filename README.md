@@ -25,7 +25,7 @@ It runs entirely on your machine, on the AI subscriptions you are already logged
 | SPLIT | `splitter` agent | Keeps the card whole, or breaks a big one (3+ independent deliverables) into small child cards |
 | PLAN | `planner` agent | Writes a plan and a task checklist. If the card is vague it **stops and asks**, it never guesses |
 | BUILD | `builder` agent | Implements the tasks and writes the tests |
-| CHECKS | code, not prompts | Guardrails (protected files, diff size, secrets, deleted tests) + your `scripts/ci.sh` |
+| CHECKS | code, not prompts | Guardrails (protected files, diff size, secrets, deleted tests) + your CI script |
 | REVIEW | `qa` + `cross` | Two independent reviewers, ideally on **different models**, in parallel. Both must approve |
 | MERGE | git + `retro` agent | Commit, merge into the base branch, record lessons learned |
 
@@ -43,7 +43,7 @@ The full list, with how to check and install each item, is in [`requirements/`](
 | git | any recent version |
 | [Claude Code](https://claude.com/claude-code) | installed **and logged in** (`claude`). The default and best-tested AI. Any other AI that can edit files can replace it (see [Any AI](#any-ai)) |
 | [Antigravity CLI](https://antigravity.google) `agy` | optional. Gives the `cross` reviewer a Gemini model (a different model family catches different mistakes). Without it, `cross` is a second Claude model |
-| bash | to run your project's `scripts/ci.sh` (Git Bash on Windows) |
+| bash | to run the project's CI script, `ci.sh` (Git Bash on Windows) |
 
 You need your own Claude Code subscription/login. Usage counts against its limits; the orchestrator waits and retries on rate limits.
 
@@ -101,12 +101,14 @@ lonerchestrator doctor
 ```bash
 cd your-project            # a git repository, clean working tree
 claude                     # once: accept the folder trust dialog, then exit
-lonerchestrator init       # installs board, agents, guardrails, context/ and runs the introduction
+lonerchestrator init       # sets up the project's folder (cards, agents, context, CI script) and runs the introduction
 ```
 
+`init` adds nothing to your project: everything goes to a folder of its own outside it (see [Where its files live](#where-its-files-live)).
+
 1. **Introduction** (`init`, or `lonerchestrator intro` any time): detects which AIs you are logged in to and lets you choose the model for each role, the two reviewers, and which agent handles each area.
-2. `context/project.md` (stack, how to run tests, conventions) fills itself: when it is empty, the first `lonerchestrator run` has the AI study your repository and write it (or run `lonerchestrator context` any time). Read it and correct anything wrong. Adapt `scripts/ci.sh` to your project.
-3. Open the panel and press `n`: write what you want changed in plain words, press `Enter`, and the card is created and the pipeline starts working on it (a vague request becomes questions for you, not guesses). `Tab` in that box picks the agent (backend, frontend, both). Prefer writing the card yourself? `lonerchestrator new "Add login"`, then edit it in `board/backlog/` with a goal and **testable** acceptance criteria.
+2. `context/project.md` (stack, how to run tests, conventions) fills itself: when it is empty, the first `lonerchestrator run` has the AI study your repository and write it (or run `lonerchestrator context` any time). Read it and correct anything wrong. Adapt the CI script `ci.sh` to your project (`init` prints where both are).
+3. Open the panel and press `n`: write what you want changed in plain words, press `Enter`, and the card is created and the pipeline starts working on it (a vague request becomes questions for you, not guesses). `Tab` in that box picks the agent (backend, frontend, both). Prefer writing the card yourself? `lonerchestrator new "Add login"` prints the new card's path: edit it with a goal and **testable** acceptance criteria.
 4. `lonerchestrator` opens the panel. Press `r` to run.
 
 <p align="center">
@@ -139,12 +141,12 @@ Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new r
 
 ### The Settings tab: configure without editing JSON
 
-- **Settings** (left): base branch, CI command, attempts per card, split big cards, time limit, max files and changed lines per card, full agent text, and running your own git hooks. `↑↓` move, `←/→` or `space` change a value, `Enter` edits the CI command. Each change is saved to `.orchestrator/config.json` at once, and the line under the list explains the selected option. The CI command you type here is approved automatically (you wrote it).
+- **Settings** (left): base branch, CI command, attempts per card, split big cards, time limit, max files and changed lines per card, full agent text, and running your own git hooks. `↑↓` move, `←/→` or `space` change a value, `Enter` edits the CI command. Each change is saved to the project's config at once, and the line under the list explains the selected option. The CI command you type here is approved automatically (you wrote it).
 - **Ready to run?** (right): Git and the base branch, Claude Code installed and logged in, the two reviewers, the CI command (script exists, approved), `context/project.md` filled in, Claude Code trusting the folder, and cards in the backlog. Anything missing shows the exact fix. Open this tab first in a new project.
 
 ### The AIs tab: choose your AIs, watch your usage
 
-- **AIs to use**: every model of the AIs you are logged in to, as a checklist (`↑↓` move, `space` check/uncheck). Unchecking a model that a role uses moves that role to another checked model; you cannot uncheck the last Claude model. Changes are saved to `.orchestrator/config.json` immediately.
+- **AIs to use**: every model of the AIs you are logged in to, as a checklist (`↑↓` move, `space` check/uncheck). Unchecking a model that a role uses moves that role to another checked model; you cannot uncheck the last Claude model. Changes are saved to the project's config immediately.
 - **Who does what**: `splitter`, `planner`, `builder`, `retro` (Claude models) and the two reviewers `qa`/`cross` (any checked AI). `←/→` or `space` changes the model. It warns when both reviewers use the same model.
 - **Usage, live**, the same way for every AI:
   - **Claude Code**: your account's **5-hour session** and **weekly** limits as bars with the reset time (the same numbers as `/usage`), plus tokens per model. They update after every agent call; press `u` to refresh on demand (one tiny haiku call).
@@ -159,9 +161,9 @@ Keys: `←→↑↓` move/select · `1`–`6` or `Tab` switch tab · `n` **new r
 | Command | Does |
 |---|---|
 | `lonerchestrator` | Open the panel for the project in the current folder (same as `live`) |
-| `init [--force]` | Set up a project (never overwrites existing files without `--force`) |
+| `init [--force]` | Set up the project's folder, nothing in the project (never overwrites its files without `--force`) |
 | `intro [--yes]` | Detect logged-in AIs and assign models/agents (`--yes` accepts the defaults) |
-| `new "title" [--area frontend\|backend\|both\|docs\|<yours>]` | Create a numbered card in `board/backlog/` |
+| `new "title" [--area frontend\|backend\|both\|docs\|<yours>]` | Create a numbered card in the backlog and print its path |
 | `answer [card]` | Answer a blocked card's questions in the terminal and send it back to the backlog |
 | `trust [--yes]` | Approve the project's CI command (it runs through a shell). Asked once, the first time you open or run a project |
 | `run [--card id] [--base branch] [--dry-run]` | Process the backlog headless |
@@ -187,28 +189,28 @@ Vague cards ("make it faster", "a nice report") are **not implemented**. The age
 
 **Without the panel:** `lonerchestrator answer 002` asks the same questions in the terminal (type 1-3 to pick a suggestion, or write your own) and does the same.
 
-**By hand** still works: write the answers in the card's `## Answers` section and move the file from `board/blocked/` back to `board/backlog/`.
+**By hand** still works: write the answers in the card's `## Answers` section and move the file from `board/blocked/` back to `board/backlog/` (in the project's folder).
 
 ## Guardrails
 
 Checked by **code**, not by prompts, before CI runs:
 
-- protected paths cannot change (`scripts/**`, `.claude/**`, `CLAUDE.md`, `GEMINI.md`, `.orchestrator/**`)
+- protected paths cannot change (`.claude/**`, `CLAUDE.md`, `GEMINI.md`: your AI tools' own setup). The orchestrator's own files are not in the project, and its config, rules, agents and CI script are out of the agents' reach
 - diff size limits per card (default 25 files / 1000 lines): too-big cards must be split
 - deleted tests and secrets in the diff (keys, tokens, passwords) are rejected; a secret is reported as `path:line`, never copied into the card or the logs
 - one branch per card (`card/<id>`); nothing merges without both reviewers approving and CI passing
 - agents never commit, merge, push or switch branches: the orchestrator owns git
 - rate limits: waits with backoff and resumes; an expired login aborts without losing the card
-- the project's `.claude/settings.json` allows only what is needed and denies `rm -rf`, `git push`, `git reset --hard`, etc.
+- the permissions Claude Code gets (`settings.json` in the project's folder) allow only what is needed and deny `rm -rf`, `git push`, `git reset --hard`, etc.
 
 ## Configuration
 
-`.orchestrator/config.json` in your project (only what you want to change; the rest comes from defaults):
+`config.json` in the project's folder (`lonerchestrator doctor` prints where; only what you want to change, the rest comes from defaults):
 
 ```json
 {
   "base": "main",
-  "ci": "bash scripts/ci.sh",
+  "ci": "bash \"{folder}/ci.sh\"",
   "max_attempts": 3,
   "split": true,
   "verbose": false,
@@ -221,12 +223,12 @@ Checked by **code**, not by prompts, before CI runs:
 }
 ```
 
-`base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide.
+`base` is the branch that receives approved cards. Point it at a scratch branch to keep `main` untouched until you decide. `ci` runs in the project (or a card's worktree of it); `{folder}` is replaced by the project's folder.
 
 ### Effort, areas and the docs agent
 
 - **Effort per role.** Any role or reviewer can say how hard its model thinks: `"builder": {"cli": "claude", "model": "opus", "effort": "xhigh"}`, or `"effort": "low"` on the splitter to save quota. The words are `low`, `medium`, `high`, `xhigh`, `max` (unset = the CLI's default). Claude Code gets `--effort`; Codex gets `model_reasoning_effort` (above `high` is lowered to `high`); a CLI with no way to take it ignores it. Your own provider takes it with `"effort_args": ["--effort", "{effort}"]` and, optionally, `"efforts"` (the words it accepts). The web page's AIs tab has an effort list next to every role.
-- **Areas are yours.** The keys of `agents` are the areas a card may have, each mapped to an agent file: `"agents": {"data": "data-eng"}` adds a `data` area built by `.claude/agents/data-eng.md`. Other AIs get that file's text in their prompt, so any AI can play any agent. *Ready to run?* warns when an area's agent file is missing.
+- **Areas are yours.** The keys of `agents` are the areas a card may have, each mapped to an agent file: `"agents": {"data": "data-eng"}` adds a `data` area built by `agents/data-eng.md` in the project's folder (`{folder}` and `{ci}` in its text are filled in). Other AIs get that file's text in their prompt, so any AI can play any agent. *Ready to run?* warns when an area's agent file is missing.
 - **The `docs` area: documenter and researcher.** Cards about documentation (README, guides, docstrings, API docs, changelog) or a question to answer ("which library fits us?") go to the `docs` agent. It reads before it writes, backs every claim about the project with `path:line` or a command's output, runs every example it writes, never changes product behaviour, and writes research to `docs/research/<card>.md`: short answer first, evidence, options with trade-offs, a recommendation. A request with words like *document*, *README*, *guide* or *research* (and no code words) is filed under `docs` by itself.
 - **Decisions leave a trail.** Every builder (backend, frontend, docs) records a non-obvious choice as one line in `context/decisions.md` (date, decision, why, card) and updates `context/project.md` when the stack or commands change, so the next agent does not repeat the debate.
 
@@ -236,7 +238,7 @@ Checked by **code**, not by prompts, before CI runs:
 lonerchestrator web
 ```
 
-Everything the terminal panel does, in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Six tabs (keys `1`-`6`), updated by themselves while the pipeline runs:
+Everything the terminal panel does, in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Seven tabs (keys `1`-`7`), updated by themselves while the pipeline runs:
 
 <p align="center">
 <picture>
@@ -273,6 +275,7 @@ Everything the terminal panel does, in your browser, served only to your own com
 - **Agents:** the live output of the pipeline, planner, builder, qa, cross and retro.
 - **AIs:** which AI models are on, who does what (splitter, planner, builder, retro, suggester, qa, cross), live Claude account limits (session and week, with reset time), tokens and calls per model for this run and all runs, *Detect again* and *Refresh limits*.
 - **Settings:** "Ready to run?" with the exact fix for each item, and every setting (base branch, CI command, attempts, cards at once, builders per card, limits, ...). Saving the CI command approves it, like in the terminal.
+- **Git:** your folder as TortoiseGit shows it. Every changed file (new, modified, deleted, renamed) with a box to pick it and its diff a click away; a message and *Commit* (or *Commit & push*) commits only the files you picked, whatever else you staged stays staged. *Fetch*, *Pull* (fast-forward only: never a merge commit) and *Push* (the first push publishes the branch), how many commits are to push and to pull, and the last 30 commits with the ones *to push* marked. It changes nothing while a card is being built in your folder, and runs your git hooks only with *Run my git hooks* on.
 
 **＋ New request** (any tab): say what you want changed in plain words. The AI with the `suggester` role drafts the card (title, which agent builds it, goal, 2 to 5 testable criteria); without a reachable AI a plain rule-based draft is used, so a request is never lost. Tick *start working now* and the pipeline starts (or picks the card up if it is already running). A vague request is fine: the planner asks you instead of guessing. **Run** and **Stop** are in the header.
 
@@ -299,23 +302,29 @@ It only shows: it never approves or blocks a card, reads git without running you
 
 ## Several cards at once
 
-Set **Cards at the same time** in the Settings tab (or `"parallel": 3` in the config, or `lonerchestrator run -j 3`). Each card then works in its own git worktree under `.orchestrator/worktrees/<card>` with its own branch, so agents never touch each other's files. Planning, building, guardrails, CI and the two reviews run in parallel; merges and retros happen one at a time in your main checkout. If another card was merged first, a card merges the new base into its branch and runs CI again before it is merged.
+Set **Cards at the same time** in the Settings tab (or `"parallel": 3` in the config, or `lonerchestrator run -j 3`). Each card then works in its own git worktree (in the project's folder, `work/<card>`) with its own branch, so agents never touch each other's files. Planning, building, guardrails, CI and the two reviews run in parallel; merges and retros happen one at a time in your main checkout. If another card was merged first, a card merges the new base into its branch and runs CI again before it is merged.
 
 - **Dependencies:** a card that needs another one first says so in its header, `depends: 001-schema, 002-api`. It waits until those are in `done/`. Cards without `depends` are assumed independent.
 - **Fresh worktrees have no installed dependencies** (`node_modules`, a virtualenv, ...). Put the command that prepares one in `"setup"` (for example `"npm ci"`); it runs once per card, and is part of what `lonerchestrator trust` approves.
 - Each running card uses its own agent calls, so it uses your AI limits faster. Rate limits are still waited out per card.
 - The panel's Flow tab follows the most recently active card; the Board tab marks every running card. The agent panes interleave the output of all running cards (each line of the log table names its card).
-- `parallel: 1` (the default) is the old behaviour: one card after the other, no worktrees.
+- `parallel: 1` (the default) is the old behaviour: one card after the other, no worktrees (unless you have uncommitted changes, see below).
+
+## Uncommitted changes are fine
+
+You do not have to commit before a run. `lonerchestrator run` (and Run in the panel or the web page) has no files of its own in your project, so it never commits anything but the cards' work, and your changes are left exactly as they are: what you staged stays staged. Each card is then built from the last commit of the base branch in its own worktree, like with `parallel`, so the agents do not see your uncommitted work (commit it first if a card needs it; set `setup` if CI needs installed dependencies). An approved card lands in your folder through a fast-forward that updates only the files it changed. If it changed a file you are also editing, git refuses, nothing is touched, and the card waits in *Needs you* with the file named: commit or move your change (the Git tab of the web page does it), then send the card back.
+
+It still stops in two cases: changes on a branch other than the base one (switch back, or commit them), and a repository without any commit (make the first one, in the Git tab or with `git add -A` and `git commit`).
 
 ## Several builders on one card
 
 Set **Builders per card** (Settings tab, or `"builders": 3`) and the planner lists the files each task changes: `- [ ] add the endpoint [files: api/users.py, tests/test_users.py] (criterion 1)`. Tasks that share no file are built **at the same time**, each group by its own builder in a throw-away worktree; the parts are then merged into the card branch, and guardrails, CI and the two reviews run on the whole result as usual.
 
-It falls back to ONE builder, with nothing kept from the attempt, whenever anything is doubtful: a task without `[files: ...]`, all tasks sharing a file, a part that touches a file it did not declare, a blocked part, or a merge conflict. Only the first attempt is built by the team; retries after a rejection use one builder. It combines with parallel cards. Projects created before this feature keep their old planner instructions: run `lonerchestrator init --force` to refresh them (it overwrites the template files, agents and `CLAUDE.md` included, so commit your edits first), or add the `[files: ...]` rule to your planner agents by hand.
+It falls back to ONE builder, with nothing kept from the attempt, whenever anything is doubtful: a task without `[files: ...]`, all tasks sharing a file, a part that touches a file it did not declare, a blocked part, or a merge conflict. Only the first attempt is built by the team; retries after a rejection use one builder. It combines with parallel cards. Projects created before this feature keep their old planner instructions: run `lonerchestrator init --force` to refresh them (it overwrites the folder's rules, agents and CI script with the templates, so copy your edits first), or add the `[files: ...]` rule to your planner agents by hand.
 
 ## Any AI
 
-Every role (splitter, planner, builder, retro, the two reviewers and the answer suggester) can run on **any AI command-line tool**, not only Claude Code. Pick them in the AIs tab, or in `.orchestrator/config.json`:
+Every role (splitter, planner, builder, retro, the two reviewers and the answer suggester) can run on **any AI command-line tool**, not only Claude Code. Pick them in the AIs tab, or in the project's `config.json`:
 
 <p align="center">
 <picture>
@@ -354,9 +363,9 @@ A provider is just *how to call the CLI* (its tokens can be read from what it pr
 | Ollama (`ollama run`) | preset, text only | **written from the vendor docs, not run here** |
 | OpenCode, Aider, Goose, your own script... | define it under `providers` | flags differ per version: check the tool's `--help` |
 
-You can change a preset the same way (an entry named `codex` in `providers` overrides its flags). Other AIs get the same instructions as the Claude agents (`.claude/agents/<role>.md` plus `CLAUDE.md`, put in the prompt) and the reviewers get the diff written into the prompt, so they work even if the CLI cannot read files.
+You can change a preset the same way (an entry named `codex` in `providers` overrides its flags). Other AIs get the same instructions as the Claude agents (the folder's `agents/<role>.md` plus `rules.md`, put in the prompt) and the reviewers get the diff written into the prompt, so they work even if the CLI cannot read files. A planner or builder must also reach the cards, `context/` and `memory/` in the project's folder: `dir_args` says how (`["--add-dir", "{dir}"]` for Codex, `["--include-directories", "{dir}"]` for Gemini CLI). An AI without it (Antigravity has none) may not reach them, so keep it to the reviewer roles.
 
-What stays the same for every AI: the guardrails on the diff (protected paths, size, secrets, deleted tests), the check that an AI did not touch `.git`, the CI command, the two independent reviewers and the human gates. What is different: `.claude/settings.json` (its allow/deny lists) only restricts Claude Code. For every other AI the limits are the flags in its provider (`edit_args`/`read_args`, e.g. a sandbox mode), so read them. Because a provider starts a program, a provider defined in a project's config must be approved once with `lonerchestrator trust`, like the CI command.
+What stays the same for every AI: the guardrails on the diff (protected paths, size, secrets, deleted tests), the check that an AI did not touch `.git`, the CI command, the two independent reviewers and the human gates. What is different: the folder's `settings.json` (its allow/deny lists) only restricts Claude Code. For every other AI the limits are the flags in its provider (`edit_args`/`read_args`, e.g. a sandbox mode), so read them. Because a provider starts a program, a provider defined in a project's config must be approved once with `lonerchestrator trust`, like the CI command.
 
 ## The agents study your project
 
@@ -365,23 +374,32 @@ Agents read `context/project.md` before every card. When it is empty, the orches
 - **When:** at the start of `lonerchestrator run` (the panel's and the web page's Run included) when there are cards to do, with `lonerchestrator context`, or with the *Study the project now* button in the web page's Settings tab.
 - **What it looks at, without any AI:** file tree and languages, `package.json` / `pyproject.toml` / `Cargo.toml` / `go.mod` / `Makefile` (scripts and targets become the test, lint and build commands, all of them in a mixed repo), tooling configs, CI workflows, test folders, the start of the README and the last commits. Secrets (`.env`, keys) are never read.
 - **Who writes it:** the AI with the `suggester` role gets only those facts (read-only, no tools) and writes the five bullets: what it is, stack, how to run/test/lint/build, conventions, what agents must never do. It is told to write `unknown: ask the user` instead of inventing. With no AI available, the facts are written as they are, so the file is never empty and a run never waits for an AI.
-- **Yours stays yours:** a file that already has content is never overwritten (`--force` drafts it again; `--basic` skips the AI). The new file is committed when your working tree was clean, so the run can go on; otherwise it is left for you to commit.
+- **Yours stays yours:** a file that already has content is never overwritten (`--force` drafts it again; `--basic` skips the AI). It lives in the project's folder, so there is nothing to commit.
 - The facts (file names, manifest scripts, README start) go to the same AI you already use for the `suggester` role, nothing else leaves your machine.
 
-## What each project gets
+## Where its files live
+
+Not in your project. Each project gets a folder of its own, `~/.lonerchestrator/projects/<project>-<hash>/` (`lonerchestrator doctor` prints it), so losing the project or cloning it again loses no card, context or lesson, and no orchestrator file ever shows up in your git status:
 
 ```
-your-project/
-├── CLAUDE.md  GEMINI.md          orchestrator and reviewer rules
-├── board/{backlog,doing,review,done,blocked}/   cards (.md); local, gitignored
+~/.lonerchestrator/projects/your-project-1a2b3c4d/
+├── config.json                                  your settings (only what you changed)
+├── rules.md  agents/  settings.json             the rules, the agents and their permissions (yours to edit)
+├── ci.sh                                        your lint + tests + build
+├── board/{backlog,doing,review,done,blocked}/   cards (.md)
 ├── context/{project,decisions,history}.md       context the agents read
 ├── memory/{backend,frontend,docs,qa}.md         lessons learned per area (the retro agent maintains it)
-├── .claude/{agents,skills,settings.json}        agents and permissions
-├── scripts/ci.sh                                your lint + tests + build
-└── .orchestrator/                               config, per-run logs, live streams
+├── runs/  streams/  log.md                      per-run logs, live streams, readable table
+└── work/<card>/                                 a card's git worktree, while it is built
 ```
 
-Logs: `board/_log.md` (readable table), `.orchestrator/runs/<run>/events.jsonl` (structured) and, per card, the full text of every agent.
+The folder is found by the project's path. A project that moved (renamed, another drive, cloned again after it was lost) is recognised by its first commit and gets its folder back on the first command, approval included; a second clone next to the original gets a folder of its own.
+
+`LONERCHESTRATOR_HOME` moves all of it, for example to a synced folder so it also survives losing the machine. The agents can reach the folder's cards, `context/` and `memory/` (Claude Code through `--add-dir`), never its config, rules, agents or CI script. Claude Code gets the agent, the rules and the permissions as command-line flags, so a `CLAUDE.md` or `.claude/` of your own stays as it is.
+
+**From an older version:** the orchestrator's files used to live in the project (`board/`, `context/`, `memory/`, `.orchestrator/`, `scripts/ci.sh`, `CLAUDE.md`, `GEMINI.md`, `.claude/agents`, ...). The first command in such a project moves them into its folder: cards, context, memory, logs, config and CI script as they are; the old rules, permissions and template agents to `old-setup/` (the new ones replace them); agents of your own for the orchestrator to `agents/`, pointed at the folder. A file that is not recognisably the orchestrator's stays where it is, and the lines `init` added to `.gitignore` go away. Git then shows the moved files as deleted: commit that (Git tab of the web page).
+
+Logs: `log.md` (readable table), `runs/<run>/events.jsonl` (structured) and, per card, the full text of every agent.
 
 ## Troubleshooting
 
@@ -389,10 +407,11 @@ Logs: `board/_log.md` (readable table), `.orchestrator/runs/<run>/events.jsonl` 
 |---|---|
 | `Failed to authenticate` / OAuth expired | Run `claude` (or `agy`) once and log in |
 | Permissions in `settings.json` ignored | Folder not trusted: run `claude` inside it and accept the dialog (trusting the parent folder is not enough) |
-| "working tree not clean" | Commit or stash first; the orchestrator requires a clean tree |
+| "you have uncommitted changes on X" | Switch back to the base branch, or commit them: approved cards are merged into the base branch |
+| Card blocked: "merge into main failed: ... would be overwritten" | The card changed a file you are editing: commit or move your change (Git tab), then send the card back |
 | "Window too small" | The panel needs 120×34: use `lonerchestrator live` or enlarge the window |
 | `gemini` CLI asks you to migrate | Use `agy` (the Antigravity CLI) for Gemini models |
-| Pipeline does not start from the panel | Look at `.orchestrator/run.out` |
+| Pipeline does not start from the panel | Look at `run.out` in the project's folder (the web page shows its last line next to *stopped*) |
 
 ## Development
 
@@ -402,7 +421,7 @@ python -m pip install -e . -r requirements/dev.txt
 ruff check . && pytest -q
 ```
 
-Standard library only. Modules in `orch/`: `pipeline` (the loop), `agents` (CLI runner, backoff), `guardrails`, `board` (cards), `gitops`, `events` (logs), `tui`/`view` (panel), `term` (keyboard/process/window per OS), `intro`, `config`, `cli`. Templates copied by `init` live in `orch/templates/` (`dot-claude/` becomes `.claude/`). See [CONTRIBUTING.md](CONTRIBUTING.md).
+Standard library only. Modules in `orch/`: `pipeline` (the loop), `agents` (CLI runner, backoff), `guardrails`, `board` (cards), `gitops`, `events` (logs), `tui`/`view` (panel), `term` (keyboard/process/window per OS), `intro`, `config`, `folder` (the project's folder, moving an old layout into it), `cli`. Templates copied by `init` into the project's folder live in `orch/templates/`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

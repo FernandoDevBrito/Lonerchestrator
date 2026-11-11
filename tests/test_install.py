@@ -3,7 +3,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import sh
 
 from orch import __version__, cli, term
 from orch.cli import main
@@ -23,15 +22,15 @@ def fake_which(present):
 
 
 def test_doctor_all_good_in_a_project(project, monkeypatch, capsys):
-    (project / "scripts").mkdir()
-    (project / "scripts" / "ci.sh").write_text("exit 0\n")                   # the default CI command needs its script
-    sh(project, "git", "add", "-A")
-    sh(project, "git", "commit", "-qm", "ci script")                          # a clean tree, so the git check is a plain ok
+    from orch import config, folder
+    config.write_raw(project, {"base": "main"})
+    (folder.of(project) / "ci.sh").write_text("exit 0\n")                   # the default CI command needs its script
     monkeypatch.setattr(cli.shutil, "which", fake_which({"git", "claude", "agy", "bash"}))
     monkeypatch.setattr(cli.term, "real_bash", lambda: "/bin/bash")
     assert main(["-C", str(project), "doctor"]) == 0
     out = capsys.readouterr().out
-    assert "[ ok ] git" in out and "[ ok ] claude" in out and "project:" in out and "Git: base 'main'" in out
+    assert "[ ok ] git" in out and "[ ok ] claude" in out and "Git: base 'main'" in out
+    assert f"its folder: {folder.of(project)}" in out
 
 
 def test_doctor_reports_what_is_missing_and_how_to_fix_it(tmp_path, monkeypatch, capsys):

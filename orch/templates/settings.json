@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bash scripts/ci.sh:*)",
+      "Bash({ci}:*)",
       "Bash(python -m pytest:*)",
       "Bash(python -m ruff:*)",
       "Bash(python -m compileall:*)",
@@ -50,13 +50,10 @@
       "Bash(powershell:*)",
       "Bash(pwsh:*)",
       "Bash(cmd:*)",
-      "Edit(scripts/**)",
       "Edit(.claude/**)",
       "Edit(.git/**)",
-      "Edit(.orchestrator/**)",
       "Edit(CLAUDE.md)",
-      "Edit(GEMINI.md)",
-      "Edit(board/_log.md)"
+      "Edit(GEMINI.md)"
     ]
   }
 }

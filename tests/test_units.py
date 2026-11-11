@@ -50,7 +50,8 @@ def test_verdict_and_marker():
 
 def test_guardrails():
     assert guardrails.check_diff(G, ["src/a.py"], [], "+x = 1\n") == []
-    assert any("protected" in v for v in guardrails.check_diff(G, ["scripts/ci.sh"], [], ""))
+    assert any("protected" in v for v in guardrails.check_diff(G, [".claude/settings.json"], [], ""))
+    assert any("protected" in v for v in guardrails.check_diff(G, ["CLAUDE.md"], [], ""))
     assert any("test file deleted" in v for v in guardrails.check_diff(G, [], ["tests/test_a.py"], ""))
     assert any("secret" in v for v in guardrails.check_diff(G, ["a.py"], [], '+api_key = "abcdefghijklmnop"\n'))
     assert any("files changed" in v for v in guardrails.check_diff({**G, "max_files": 1}, ["a", "b"], [], ""))

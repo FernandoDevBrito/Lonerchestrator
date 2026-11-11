@@ -2,11 +2,11 @@
 import json
 import time
 
-from conftest import add_card
+from conftest import add_card, home
 from test_anyai import mine, records  # noqa: F401  (a fake third-party AI in every role)
 from test_web import server  # noqa: F401  (the local web server fixture)
 
-from orch import providers, usage
+from orch import config, providers, usage
 from orch.agents import Runner
 from orch.pipeline import Pipeline
 
@@ -45,7 +45,7 @@ def test_a_cli_that_reports_nothing_gets_an_estimate_flagged_as_such(project, mi
 
 def test_rolling_windows_and_budgets(project):
     now = time.time()
-    run = project / ".orchestrator" / "runs" / "r1"
+    run = home(project) / "runs" / "r1"
     run.mkdir(parents=True)
     rows = [{"ts": now - 600, "ai": "agy", "model": "g", "role": "qa", "in": 600, "out": 400, "cost": 0.0},
             {"ts": now - 6 * 3600, "ai": "agy", "model": "g", "role": "qa", "in": 100, "out": 0, "cost": 0.0, "est": True},
@@ -69,13 +69,11 @@ def test_budget_api_sets_changes_and_removes(server, project):  # noqa: F811
         return s, json.loads(body)
     assert post(key="agy", unit="tokens", limit=1000000, per="day")[0] == 200
     assert post(key="agy", unit="calls", limit=50, per="day")[0] == 200
-    cfg = json.loads((project / ".orchestrator" / "config.json").read_text(encoding="utf-8"))
-    assert cfg["budgets"]["agy"] == {"per": "day", "tokens": 1000000, "calls": 50}
+    assert config.read_raw(project)["budgets"]["agy"] == {"per": "day", "tokens": 1000000, "calls": 50}
     ais = json.loads(call("GET", "/api/ais")[1])
     assert {b["unit"] for b in ais["budgets"]} == {"tokens", "calls"} and "agy" in ais["known"] and "windows" in ais
     assert post(key="agy", unit="tokens", limit=0, per="day")[0] == 200 and post(key="agy", unit="calls", limit=0, per="day")[0] == 200
-    assert "budgets" not in json.loads((project / ".orchestrator" / "config.json").read_text(encoding="utf-8")) or \
-        json.loads((project / ".orchestrator" / "config.json").read_text(encoding="utf-8"))["budgets"] == {}
+    assert config.read_raw(project).get("budgets", {}) == {}
     for bad in ({"key": "evil", "unit": "tokens", "limit": 5}, {"key": "agy", "unit": "bananas", "limit": 5}, {"key": "agy", "unit": "tokens", "limit": -1},
                 {"key": "agy", "unit": "tokens", "limit": "x"}, {"key": "agy", "unit": "tokens", "limit": 5, "per": "year"}):
         assert post(**bad)[0] == 400

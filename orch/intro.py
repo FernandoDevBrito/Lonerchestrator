@@ -5,7 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import providers
+from . import folder, providers
 
 CLAUDE_MODELS = ["sonnet", "opus", "haiku"]
 
@@ -45,9 +45,9 @@ def detect(cfg=None):
 
 
 def save_ais(project, ais):
-    """Remember what detect() found: .orchestrator/ais.json (read by the panel and the AIs menu)."""
-    d = Path(project) / ".orchestrator"
-    d.mkdir(exist_ok=True)
+    """Remember what detect() found: ais.json in the project's folder (read by the panel and the AIs menu)."""
+    d = folder.of(project)
+    d.mkdir(parents=True, exist_ok=True)
     (d / "ais.json").write_text(json.dumps({"ts": time.strftime("%F %T"), "ais": ais}, indent=2), encoding="utf-8")
 
 
@@ -68,7 +68,7 @@ def _pick(title, options, default, ask, out):
 
 
 def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
-    """Detect AIs, assign roles, write .orchestrator/config.json + ais.json. Returns the new raw config."""
+    """Detect AIs, assign roles, write config.json + ais.json in the project's folder. Returns the new raw config."""
     from . import config, tui
     project = Path(project)
     cfg = config.load(project)
@@ -79,7 +79,6 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
             continue                                  # do not list every preset the user never installed
         state = "logged in" if v["logged_in"] else ("installed, NOT logged in" if v["installed"] else "not installed")
         out(f"  {name:<8} {state:<26} {', '.join(v['models'][:6])}{' ...' if len(v['models']) > 6 else ''}")
-    (project / ".orchestrator").mkdir(exist_ok=True)
     save_ais(project, ais)
     reg = providers.registry(cfg)
     live = [(c, m) for c, v in ais.items() if v["logged_in"] for m in v["models"]]
@@ -110,24 +109,23 @@ def run_intro(project, ask=input, out=print, assume_yes=False, ais=None):
     a, b = new["reviewers"]
     if (a["kind"], a["model"]) == (b["kind"], b["model"]):
         out("\n  note: both reviewers use the same model, cross-review is weaker.")
-    agents_dir = project / ".claude" / "agents"
+    agents_dir = folder.of(project) / "agents"
     have = sorted(p.stem for p in agents_dir.glob("*.md") if p.stem not in ("qa", "retro", "splitter")) if agents_dir.exists() else []
     for area in ("backend", "frontend", "both"):
         if have and not assume_yes:
             cur = cfg["agents"][area]
             new["agents"][area] = _pick(f"area '{area}': which agent implements it?", [(a, a) for a in have], have.index(cur) if cur in have else 0, ask, out)
 
-    f = project / ".orchestrator" / "config.json"
-    raw = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+    raw = config.read_raw(project)
     raw.update(new)
     in_use = [f"{r['cli']}/{r['model']}" for r in new["roles"].values()] + [f"{r['kind']}/{r['model']}" for r in new["reviewers"]]
     raw["use"] = sorted(set(raw.get("use") or []) | set(in_use))      # the AIs menu (tab 5) lets you check more
-    f.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
-    out("\nSaved .orchestrator/config.json. This is your pipeline:\n")
+    config.write_raw(project, raw)
+    out("\nSaved the config. This is your pipeline:\n")
     out(tui.render(project, screen=1))
     return raw
 
 
 def configured(project):
-    f = Path(project) / ".orchestrator" / "config.json"
-    return f.exists() and "roles" in json.loads(f.read_text(encoding="utf-8"))
+    from . import config
+    return "roles" in config.read_raw(project)

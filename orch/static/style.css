@@ -313,6 +313,15 @@ nav kbd{border:0;background:none;padding:0}
   .gtitle .ev{max-width:24ch}
 }
 
+/* ---- git tab: the changed files (pick, then click for the diff), the diff in the graph's colours */
+.gchanges{max-height:46vh;overflow:auto}
+.gch{display:flex;gap:8px;align-items:center}
+.gch .chip{min-width:70px;text-align:center}
+.gch .gitem{flex:1;min-width:0}
+.gitdiff{max-height:64vh}
+.gdiff .h{color:var(--faint)}
+.tbl .chip{white-space:nowrap}
+
 /* ---- first load: placeholders with the shape of the board */
 .sk{background:linear-gradient(100deg,var(--sunk) 30%,var(--line) 50%,var(--sunk) 70%);background-size:220% 100%;animation:shine 1.3s linear infinite;border-radius:var(--r)}
 @keyframes shine{to{background-position:-220% 0}}

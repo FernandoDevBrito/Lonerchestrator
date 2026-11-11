@@ -15,7 +15,6 @@ import re
 import subprocess
 import time
 from fnmatch import fnmatch
-from pathlib import Path
 
 from . import symbols
 from .gitops import Git
@@ -727,7 +726,8 @@ def review_text(model, limit=12):
 # ---------------------------------------------------------------- 5. reading: saved snapshots, reviewers' findings, filters
 
 def _runs(project):
-    return Path(project) / ".orchestrator" / "runs"
+    from .folder import of
+    return of(project) / "runs"
 
 
 def snapshots(project, cid):

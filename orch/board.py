@@ -1,9 +1,10 @@
-"""Cards are markdown files in board/<state>/. Front matter: title, area, attempts."""
+"""Cards are markdown files in board/<state>/ of the project's folder (folder.py). Front matter: title, area, attempts."""
 import re
 import shutil
 import time
 from pathlib import Path
 
+from . import folder
 from .safe import clean
 
 STATES = ("backlog", "doing", "review", "done", "blocked")
@@ -103,9 +104,10 @@ def create_card(project, title, area="backend", goal=None, criteria=None):
     nums = [int(m.group(1)) for s in STATES for c in board.cards(s) if (m := re.match(r"(\d+)-", c.id))]
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "request"
     dest = board.root / "backlog" / f"{max(nums, default=0) + 1:03d}-{slug}.md"
-    tpl = Path(project) / "board" / "_TEMPLATE.md"
-    if not tpl.is_file():                                   # a project made by hand: use the packaged template
-        tpl = Path(__file__).parent / "templates" / "board" / "_TEMPLATE.md"
+    tpl = board.root / "_TEMPLATE.md"
+    if not tpl.is_file():                                   # a folder made by hand: use the packaged template
+        tpl = folder.TEMPLATES / "board" / "_TEMPLATE.md"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     t = tpl.read_text(encoding="utf-8")
     t = t.replace("title: <short title>", f"title: {title}").replace("area: backend ", f"area: {area} ").replace("# <short title>", f"# {title}")
     if goal:
@@ -117,13 +119,13 @@ def create_card(project, title, area="backend", goal=None, criteria=None):
 
 
 class Board:
-    def __init__(self, project):
-        self.root = Path(project) / "board"
+    def __init__(self, project, root=None):
+        """The project's board, or the board at `root` (a card running in its own worktree has a board of its own)."""
+        self.root = Path(root) if root else folder.of(project) / "board"
 
     def ensure(self):
         for s in STATES:
             (self.root / s).mkdir(parents=True, exist_ok=True)
-            (self.root / s / ".gitkeep").touch()
 
     def cards(self, state):
         """Cards of a column. A card may say `priority: 10` in its header (lower runs first); without it the file name decides."""

@@ -7,7 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import ai, answer, config, groups, menu, providers, term
+from . import ai, answer, config, folder, groups, menu, providers, term
 from .agents import AuthError, RateLimitExhausted, marker, verdict
 from .board import Board
 from .gitops import Git
@@ -44,11 +44,12 @@ class InPlace:
     lock = contextlib.nullcontext()
 
     def merge(self, w, br, msg):
+        """"" when merged, else why not."""
         w.git.checkout(w.base)
-        if not w.git.merge_no_ff(br, msg):
-            return False
-        w.git.delete_branch(br)   # fully merged, safe delete
-        return True
+        why = w.git.merge_no_ff(br, msg)
+        if not why:
+            w.git.delete_branch(br)   # fully merged, safe delete
+        return why
 
     def park(self, w, cid, br):
         """Keep work-in-progress on the card branch and return to base."""
@@ -62,26 +63,27 @@ class InPlace:
 
 
 class Pipeline:
-    def __init__(self, project, cfg, log, runner, base=None, hub=None):
+    def __init__(self, project, cfg, log, runner, base=None, hub=None, home=None, board=None):
+        """`project` is where the code is worked on (the checkout, or a card's worktree); `home` the project's folder (folder.py) and
+        `board` the board of its cards (a card in its own worktree has its own)."""
         self.ws = hub or InPlace()          # the workspace: the project itself, or (parallel cards) a git worktree per card, see parallel.py
         self.plan, self.stages = Plan(), [Build(), Guardrails(), CI(), Review()]
         self.p, self.cfg, self.log = project, cfg, log
         self.base = base or cfg["base"]
-        self.git, self.board = Git(project, hooks=cfg.get("git_hooks", False)), Board(project)
+        self.home = Path(home) if home else folder.of(project)
+        self.git, self.board = Git(project, hooks=cfg.get("git_hooks", False)), board or Board(project)
         self.run_ = _Guarded(runner, self.git)
 
     def _instructions(self, agent):
-        """Claude Code has its own agents (.claude/agents/<name>.md). Every other AI gets the same role text, plus the project rules, in the prompt."""
-        def body(path):
-            t = path.read_text(encoding="utf-8") if path.is_file() else ""
-            return t.split("---", 2)[2].strip() if t.startswith("---") and t.count("---") >= 2 else t.strip()
-        agent_md, rules = body(self.p / ".claude" / "agents" / f"{agent}.md"), body(self.p / "CLAUDE.md")[:8000]
-        return f"# Your role: {agent}\n{agent_md}\n\n# Project rules (CLAUDE.md)\n{rules}\n\n# Your task\n"
+        """Claude Code gets the agent and the rules as its own (agents.Runner). Every other AI gets the same text in the prompt."""
+        rules = (self.home / "rules.md").read_text(encoding="utf-8") if (self.home / "rules.md").is_file() else ""
+        text = f"# Your role: {agent}\n{folder.agent(self.home, agent)[1]}\n\n# Project rules\n{rules.strip()[:8000]}\n\n"
+        return folder.render(text, self.home, self.cfg) + "# Your task\n"
 
     def _ai(self, pid):
         found = ai.registry(self.cfg).get(pid)
         if found is None:
-            raise ValueError(f"'{pid}' is not a defined AI (see `providers` in .orchestrator/config.json)")
+            raise ValueError(f"'{pid}' is not a defined AI (see `providers` in the project's config.json)")
         return found
 
     def _ask(self, role, agent, prompt, mode="edit"):
@@ -103,7 +105,7 @@ class Pipeline:
         for label, s, required in used:
             who = reg.get(s.get("cli", "claude"))
             if who is None:
-                raise SystemExit(f"{label} uses an AI called '{s.get('cli')}' that is not defined. Pick another in the AIs tab or define it under `providers` in .orchestrator/config.json")
+                raise SystemExit(f"{label} uses an AI called '{s.get('cli')}' that is not defined. Pick another in the AIs tab or define it under `providers` in the config")
             if label in ("planner", "builder", "retro", "splitter") and not who.can_edit:
                 raise SystemExit(f"{label} uses {who.name}, which cannot edit files. Give that role an AI that can (AIs tab), keep {who.name} for reviewing")
             if required and not who.installed():
@@ -201,9 +203,9 @@ class Pipeline:
         try:
             with lock:
                 for i in range(1, len(parts) + 1):
-                    d, br = Path(tempfile.mkdtemp(prefix="lc-part-")), f"part/{cid}-{i}"
+                    d, br = Path(tempfile.mkdtemp(prefix="lc-part-")), f"part/{cid}-{i}"     # d/tree: the worktree; d/board: its copy of the card
                     self.git.run("branch", "-D", br, check=False)
-                    self.git.run("worktree", "add", "-b", br, str(d), head)
+                    self.git.run("worktree", "add", "-b", br, str(d / "tree"), head)
                     made.append((br, d))
                     (d / "board" / "doing").mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(card.path, d / "board" / "doing" / card.path.name)
@@ -211,7 +213,8 @@ class Pipeline:
             def build(i):
                 br, d = made[i]
                 tasks, files = parts[i]
-                sub = Pipeline(d, self.cfg, self.log, self.run_.runner.at(d), base=self.base)
+                sub = Pipeline(d / "tree", self.cfg, self.log, self.run_.runner.at(d / "tree", board=d / "board"), base=self.base,
+                               home=self.home, board=Board(None, root=d / "board"))
                 mine = (d / "board" / "doing" / card.path.name).as_posix()
                 out = sub._ask("builder", agent, f"PHASE=IMPLEMENT, attempt {n} of {self.cfg['max_attempts']}. PART {i + 1} of {len(parts)}: you are one of "
                                f"{len(parts)} builders working at the same time on separate parts of this card. Card: {mine}. "
@@ -243,12 +246,12 @@ class Pipeline:
         finally:
             with lock:
                 for br, d in made:
-                    self.git.run("worktree", "remove", "--force", str(d), check=False)
+                    self.git.run("worktree", "remove", "--force", str(d / "tree"), check=False)
                     shutil.rmtree(d, ignore_errors=True)
                     self.git.run("branch", "-D", br, check=False)
 
     def _ci(self):
-        ci = subprocess.run(term.fix_ci_command(self.cfg["ci"]), shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
+        ci = subprocess.run(term.fix_ci_command(folder.render(self.cfg["ci"], self.home, self.cfg)), shell=True,  # nosec B602: the command comes from the project config the user approved (trust.py)
                             cwd=self.p, capture_output=True, text=True, encoding="utf-8", errors="replace")
         return ci, ci.stdout + ci.stderr
 
@@ -299,8 +302,9 @@ class Pipeline:
         self.git.add_all()
         if self.git.run("diff", "--cached", "--quiet", check=False).returncode:      # the parts of a team build are already committed
             self.git.commit(f"card {cid}: {card.title}", f"Approved by {', '.join(r['name'] for r in self.cfg['reviewers'])} after {n} attempt(s); CI green.")
-        if not self._merge(br, f"Merge card {cid}: {card.title}"):
-            return self._block(card, br, t0, f"merge into {self.base} failed")
+        why = self._merge(br, f"Merge card {cid}: {card.title}")
+        if why:
+            return self._block(card, br, t0, f"merge into {self.base} failed: {why}")
         card.log(f"APPROVED after {n} attempt(s), merged into {self.base}")
         card.move("done")
         self.log.event("card_done", cid, "orchestrator", f"merged into {self.base}", time.time() - t0, attempts=n)
@@ -325,15 +329,13 @@ class Pipeline:
         self.ws.retro(self, card, status, attempts)
 
     def do_retro(self, card, status, attempts):
-        """The retrospective itself: runs in the project's own checkout (the workspace decides when and where)."""
+        """The retrospective itself: runs in the project's own checkout (the workspace decides when and where). What it learns goes to
+        the folder's memory/, and context/history.md gets a line: nothing to commit."""
         self.log.state(card=card.id, phase="retro")
         t = time.time()
         self._ask("retro", "retro", f"Run the retrospective for card {card.path.as_posix()} (status: {status}).")
         self.log.event("retro", card.id, "retro", "ok", time.time() - t)
-        hist = self.p / "context" / "history.md"
-        hist.parent.mkdir(exist_ok=True)
+        hist = self.home / "context" / "history.md"
+        hist.parent.mkdir(parents=True, exist_ok=True)
         with hist.open("a", encoding="utf-8") as f:
             f.write(f"- {time.strftime('%F')} `{card.id}` {card.title}: {status}, {attempts} attempt(s)\n")
-        self.git.run("add", "memory", "context", check=False)
-        if self.git.run("diff", "--cached", "--quiet", check=False).returncode:
-            self.git.commit(f"retro: lessons from card {card.id}")

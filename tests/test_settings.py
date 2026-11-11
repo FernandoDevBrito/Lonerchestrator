@@ -1,6 +1,6 @@
 import json
 
-from conftest import add_card, sh
+from conftest import add_card, home, sh
 
 from orch import checks, config, intro, settings, trust, tui
 
@@ -21,7 +21,7 @@ def test_bool_toggle_persists_and_leaves_other_keys_alone(project):
     assert settings.value(project, "split") is True
     assert settings.change(project, "split") == "Split big cards: off"
     assert settings.value(project, "split") is False
-    assert json.loads((project / ".orchestrator" / "config.json").read_text()) == {"split": False}      # only what changed is stored
+    assert config.read_raw(project) == {"split": False}                                              # only what changed is stored
     assert settings.change(project, "git_hooks") == "Run my git hooks: on"
 
 
@@ -71,7 +71,10 @@ def test_ci_text_is_validated_cleaned_and_approved(project):
 def test_git_checks(project, tmp_path):
     assert status(project, "Git:") == "ok"
     (project / "dirty.txt").write_text("x")
-    assert status(project, "Uncommitted") == "warn"
+    assert status(project, "uncommitted changes") == "ok" and "yours stay as they are" in hint(project, "uncommitted changes")   # the run works around them
+    sh(project, "git", "checkout", "-q", "-b", "side")
+    assert status(project, "Uncommitted changes on 'side'") == "warn" and "switch to 'main'" in hint(project, "Uncommitted")
+    sh(project, "git", "checkout", "-q", "main")
     config.write_raw(project, {"base": "nope"})
     assert status(project, "Base branch") == "fail" and "Settings" in hint(project, "Base branch")
     outside = tmp_path / "plain"
@@ -104,17 +107,16 @@ def test_reviewer_checks(project):
 
 
 def test_ci_checks_missing_script_untrusted_then_trusted(project):
-    assert status(project, "missing") == "fail"                          # default `bash scripts/ci.sh`, no such file
-    (project / "scripts").mkdir()
-    (project / "scripts" / "ci.sh").write_text("exit 0\n")
+    assert status(project, "missing") == "fail"                          # default: the folder's ci.sh, not written yet
+    (home(project) / "ci.sh").write_text("exit 0\n")
     assert status(project, "not approved") == "warn"
     trust.trust(project, config.load(project))
     assert status(project, "CI command approved") == "ok"
 
 
 def test_context_check_tells_placeholder_from_filled(project):
-    (project / "context").mkdir()
-    ctx = project / "context" / "project.md"
+    (home(project) / "context").mkdir()
+    ctx = home(project) / "context" / "project.md"
     ctx.write_text("# Project context\n\n<!-- Fill me -->\n- Stack:\n- Conventions:\n")
     assert status(project, "context/project.md") == "warn"
     ctx.write_text("# Project context\n\n- Stack: Python 3.10, pytest and ruff\n- Conventions: flat modules\n")
@@ -171,10 +173,10 @@ def test_settings_tab_keys_change_persist_and_edit_text(project):
     assert settings.value(project, "split") is False
     ui.scur = 1                                                          # CI command
     key("\r")
-    assert ui.mode == "edit" and ui.buf == "bash scripts/ci.sh"
+    assert ui.mode == "edit" and ui.buf == 'bash "{folder}/ci.sh"'
     out = tui.render(project, 5, ui=ui, color=False)
     assert "Editing CI command" in out and "type the new value" in out and {tui.vlen(ln) for ln in out.split("\n")} == {tui.W}
-    for _ in range(len("bash scripts/ci.sh")):
+    for _ in range(len(ui.buf)):
         key("\x7f")
     for ch in "pytest -q":                                               # 'q' is text here, it must not quit
         key(ch)

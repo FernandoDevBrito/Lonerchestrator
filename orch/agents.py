@@ -1,5 +1,6 @@
 """Runs the agent CLIs (claude, agy) headless, streams their output live, retries on rate limits."""
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -7,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import providers
+from . import folder, providers
 from .usage import Usage
 
 RATE = re.compile(r"rate.?limit|quota|usage limit|too many requests|\b429\b|resource.?exhausted|overloaded|limit reached", re.IGNORECASE)
@@ -69,28 +70,70 @@ def _short(d):
 
 
 class Runner:
-    def __init__(self, project, cfg, log, sleep=time.sleep, usage=None):
+    def __init__(self, project, cfg, log, sleep=time.sleep, usage=None, home=None, board=None):
+        """Agents work in `project` (the checkout, or a card's worktree). `home` is the project's folder (folder.py), `board` the board
+        of the cards they are given (a card in its own worktree has its own)."""
         self.project, self.cfg, self.log, self.sleep = project, cfg, log, sleep
         self.usage = usage or Usage(getattr(log, "dir", None))
+        self.home = Path(home) if home else folder.of(project)
+        self.board = Path(board) if board else self.home / "board"
 
-    def at(self, path):
+    def at(self, path, board=None):
         """The same runner, working in another folder (a part-worktree of the card, see pipeline._team)."""
-        return Runner(path, self.cfg, self.log, sleep=self.sleep, usage=self.usage)
+        return Runner(path, self.cfg, self.log, sleep=self.sleep, usage=self.usage, home=self.home, board=board or self.board)
+
+    def dirs(self):
+        """What an agent may read and change outside the project: its board, context/, memory/ and this run's files (feedback, review
+        input). Never the folder's config, agents, rules or CI script: those stay as you set them."""
+        out = [self.board, self.home / "context", self.home / "memory"] + ([Path(self.log.dir)] if getattr(self.log, "dir", None) else [])
+        for d in out:
+            d.mkdir(parents=True, exist_ok=True)
+        return [str(d) for d in out]
+
+    def _claude_files(self, agent, model):
+        """The agent (--agents), its permissions (--settings) and the rules (--append-system-prompt) from the folder, with `{folder}` and
+        `{ci}` filled in. Files go to the folder's claude/, which no agent can reach."""
+        h, out = self.home, self.home / "claude"
+        out.mkdir(parents=True, exist_ok=True)
+
+        def put(name, text):                     # parallel cards write the same files: never half a file
+            tmp = out / f"{name}.{os.getpid()}.{threading.get_ident()}.tmp"
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, out / name)
+            return str(out / name)
+
+        def fill(x):
+            return folder.render(x, h, self.cfg) if isinstance(x, str) else [fill(v) for v in x] if isinstance(x, list) else \
+                {k: fill(v) for k, v in x.items()} if isinstance(x, dict) else x
+        args = []
+        meta, body = folder.agent(h, agent)
+        if body:
+            d = {"description": meta.get("description", agent), "prompt": fill(body)}
+            if meta.get("tools"):
+                d["tools"] = [t.strip() for t in meta["tools"].split(",") if t.strip()]
+            if meta.get("model") and not model:  # the model the config gives the role wins
+                d["model"] = meta["model"]
+            args += ["--agents", put(f"agent-{agent}.json", json.dumps({agent: d})), "--agent", agent]
+        if (h / "settings.json").is_file():
+            args += ["--settings", put("settings.json", json.dumps(fill(json.loads((h / "settings.json").read_text(encoding="utf-8")))))]
+        if (h / "rules.md").is_file():
+            args += ["--append-system-prompt", fill((h / "rules.md").read_text(encoding="utf-8"))]
+        return args
 
     # public API used by the pipeline (tests replace this class with a fake)
     def claude(self, role, agent, prompt, model=None, effort=None):
         exe = shutil.which("claude") or "claude"
-        cmd = [exe, "-p", "--verbose", "--output-format", "stream-json", "--agent", agent, "--permission-mode", "acceptEdits",
-               *(["--model", model] if model else []), *(["--effort", effort] if effort else []), prompt]
+        cmd = [exe, "-p", "--verbose", "--output-format", "stream-json", "--add-dir", *self.dirs(), *self._claude_files(agent, model),
+               "--permission-mode", "acceptEdits", *(["--model", model] if model else []), *(["--effort", effort] if effort else []), prompt]
         return self._run(role, cmd, claude=True)
 
     def provider(self, role, pid, model, prompt, mode="read", effort=None):
         """Any AI CLI described in the registry (presets + config `providers`). mode: "edit" may change project files, "read" must not."""
         reg = providers.registry(self.cfg)
         if pid not in reg:
-            raise ValueError(f"{role} uses an AI called '{pid}' that is not defined (see `providers` in .orchestrator/config.json)")
+            raise ValueError(f"{role} uses an AI called '{pid}' that is not defined (see `providers` in the project's config.json)")
         spec = reg[pid]
-        argv, stdin = providers.build_argv(spec, model, self._fit(prompt, spec, role), mode, effort)
+        argv, stdin = providers.build_argv(spec, model, self._fit(prompt, spec, role), mode, effort, dirs=self.dirs())
         return self._run(role, argv, claude=False, model=model, spec=spec, stdin=stdin, ptok=len(prompt) // 4)
 
     def _fit(self, prompt, spec, role):

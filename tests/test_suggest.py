@@ -2,7 +2,7 @@ import json
 import subprocess
 from types import SimpleNamespace
 
-from conftest import CARD
+from conftest import CARD, home
 
 from orch import answer, suggest, tui, usage
 from orch.board import Card
@@ -16,7 +16,7 @@ REPLY = json.dumps([["CSV", "JSON", "Plain text"], ["out/", "the current folder"
 
 
 def blocked(project, questions=TWO_PLAIN, name="001-thing", goal="Add a nightly report"):
-    f = project / "board" / "blocked" / f"{name}.md"
+    f = home(project) / "board" / "blocked" / f"{name}.md"
     f.write_text(CARD.replace("Add a thing.", goal).replace("## Blockers / questions\n", "## Blockers / questions\n" + questions), encoding="utf-8")
     return Card(f)
 
@@ -150,7 +150,7 @@ def test_pressing_a_fetches_suggestions_for_a_card_that_has_none(project, monkey
     assert "1  CSV" in out and "3  Plain text" in out and "press 1-3" in out
     tui.handle("2", ui, tui.Ctx(project, ui), None)
     assert ui.ans == ["JSON"]
-    assert "Which format?\n   a) CSV" in (project / "board" / "blocked" / "001-thing.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert "Which format?\n   a) CSV" in (home(project) / "board" / "blocked" / "001-thing.md").read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
 def test_while_waiting_the_panel_says_so_and_typing_already_works(project, monkeypatch):
@@ -193,7 +193,7 @@ def test_cli_answer_fetches_suggestions_first(project, monkeypatch, capsys):
     assert main(["-C", str(project), "answer", "001"]) == 0
     out = capsys.readouterr().out
     assert "asking Claude for 3 per question" in out and "1) CSV" in out and "3) Plain text" in out
-    c = Card(project / "board" / "backlog" / "001-thing.md")
+    c = Card(home(project) / "board" / "backlog" / "001-thing.md")
     assert "-> JSON" in c.section("Answers") and "-> my own" in c.section("Answers")
 
 
@@ -203,4 +203,4 @@ def test_cli_answer_still_works_when_suggestions_are_unavailable(project, monkey
     monkeypatch.setattr("builtins.input", lambda *_: next(given))
     assert main(["-C", str(project), "answer", "001"]) == 0
     assert "could not get suggestions" in capsys.readouterr().out
-    assert "-> csv" in Card(project / "board" / "backlog" / "001-thing.md").section("Answers")
+    assert "-> csv" in Card(home(project) / "board" / "backlog" / "001-thing.md").section("Answers")

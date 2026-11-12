@@ -6,17 +6,19 @@ import re
 import shutil
 import subprocess
 
-from . import ai, config, trust, usage
+from . import ai, config, providers, trust, usage
 
 
-def ask_claude(prompt, cwd=None, model="haiku", timeout=120):
-    """The text of Claude's reply, or None when it could not be reached (not installed, not logged in, timeout)."""
+def ask_claude(prompt, cwd=None, model="haiku", timeout=120, env=None):
+    """The text of Claude's reply, or None when it could not be reached (not installed, not logged in, timeout).
+    `env`: Claude Code pointed at another model server (providers.claude_env); its limits are not your Claude account's."""
     exe = shutil.which("claude")
     if not exe:
         return None
     try:
         p = subprocess.run([exe, "-p", "--verbose", "--output-format", "stream-json", "--model", model, prompt], cwd=cwd, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False, stdin=subprocess.DEVNULL,
+                           **({"env": env} if env else {}))
     except (OSError, subprocess.TimeoutExpired):
         return None
     text = None
@@ -25,7 +27,7 @@ def ask_claude(prompt, cwd=None, model="haiku", timeout=120):
             ev = json.loads(ln)
         except ValueError:
             continue
-        if ev.get("type") == "rate_limit_event" and ev.get("rate_limit_info"):
+        if ev.get("type") == "rate_limit_event" and ev.get("rate_limit_info") and not env:
             usage.set_claude_limits(ev["rate_limit_info"])
         elif ev.get("type") == "result" and not ev.get("is_error"):
             text = ev.get("result")
@@ -43,8 +45,9 @@ def asker(project):
     def ask(prompt):
         if who is None:
             return None
-        if not who.native and (not who.installed() or (cfg.get("providers") and not trust.is_trusted(project, cfg))):
-            return None                          # not installed, or a command the repository defines and the user has not approved
+        custom = not who.native or providers.via_claude(who.spec)          # runs a command, or sends the question to another server
+        if custom and (not who.installed() or (cfg.get("providers") and not trust.is_trusted(project, cfg))):
+            return None                          # not installed, or a command or server the repository defines and the user has not approved
         return who.ask(model, prompt, cwd=None if who.native else project)
     return ask
 

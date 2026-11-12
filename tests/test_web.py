@@ -214,7 +214,8 @@ def test_the_route_table_is_the_api_surface(server):
                 ("POST", "/api/new"), ("POST", "/api/answer"), ("POST", "/api/suggest"), ("POST", "/api/requeue"), ("POST", "/api/move"), ("POST", "/api/reorder"),
                 ("POST", "/api/ais/toggle"), ("POST", "/api/ais/assign"), ("POST", "/api/ais/detect"), ("POST", "/api/ais/limits"), ("POST", "/api/budget"),
                 ("POST", "/api/settings/set"), ("POST", "/api/context"), ("POST", "/api/run"), ("POST", "/api/stop"), ("GET", "/api/graph/"),
-                ("GET", "/api/git"), ("GET", "/api/git/diff"), ("POST", "/api/git/commit"), ("POST", "/api/git/push"), ("POST", "/api/git/pull"), ("POST", "/api/git/fetch")}
+                ("GET", "/api/git"), ("GET", "/api/git/diff"), ("POST", "/api/git/commit"), ("POST", "/api/git/push"), ("POST", "/api/git/pull"), ("POST", "/api/git/fetch"),
+                ("GET", "/api/map"), ("POST", "/api/map/explain")}
     assert set(webcore.ROUTES) == expected
     assert webcore.find_route("GET", "/api/card/001-x") == ("card", "tail", "001-x") and webcore.find_route("GET", "/api/card/") is None
     assert webcore.find_route("POST", "/api/state") is None and webcore.find_route("GET", "/api/nope") is None

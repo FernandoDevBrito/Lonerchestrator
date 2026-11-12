@@ -1,46 +1,68 @@
-"""Introduction: find the AIs this computer is logged in to, then let the user assign agents/models to the roles."""
+"""Introduction: find the AIs this computer can use, then let the user assign agents/models to the roles."""
 import json
+import os
 import shutil
 import subprocess
 import time
+import urllib.request
 from pathlib import Path
 
 from . import folder, providers
 
-CLAUDE_MODELS = ["sonnet", "opus", "haiku"]
 
-
-def parse_agy_models(text):
-    """`agy models` prints 'id<TAB>label' lines after a 'Fetching...' line."""
-    return [ln.split("\t")[0].strip() for ln in text.splitlines() if "\t" in ln]
-
-
-def _run(cmd, timeout):
+def _get(url, body=None):
+    """JSON from a model server on this computer, or None when nothing answers. Never through a proxy: the server is local."""
+    req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json"})
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False)
-        return r.returncode, r.stdout + r.stderr
-    except (OSError, subprocess.TimeoutExpired):
-        return 1, ""
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=2) as r:       # nosec B310: preset or trusted URL
+            return json.loads(r.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
-def detect(cfg=None):
-    """{ai id: {installed, logged_in, models}} for Claude Code, Antigravity and every other AI in the registry (presets + config `providers`).
-    Claude and Antigravity prove their login with a tiny real call. For any other CLI, being installed is enough: if it is not signed in, its own error shows on first use."""
+def server_models(base, get=_get):
+    """The models a local server offers to an agent, or None when it is not running. Ollama says which ones can use tools (an agent cannot
+    work without them); an OpenAI-style server (LM Studio) only lists ids, so all but embedding models are offered."""
+    tags = get(base + "/api/tags")
+    if tags is not None:
+        names = [m["name"] for m in tags.get("models", []) if m.get("name")]
+        return [n for n in names if "tools" in ((get(base + "/api/show", {"model": n}) or {}).get("capabilities") or [])]
+    data = get(base + "/v1/models")
+    return None if data is None else [m["id"] for m in data.get("data", []) if m.get("id") and "embed" not in m["id"].lower()]
+
+
+def detect(cfg=None, which=shutil.which, run=subprocess.run, get=_get, environ=os.environ):
+    """{ai id: {name, installed, logged_in, models, why?, unchecked?}} for every AI in the registry (presets + config `providers`), each found
+    the cheapest way that proves it, never by asking a model:
+        server      a model server on this computer answers (Ollama, LM Studio): its models that can use tools
+        key_env     the API-key variable is set (only that it is set: the value is not read here)
+        status_cmd  the CLI's own sign-in check passes (Claude Code, Codex)
+        models_cmd  the CLI lists models, which it only can when signed in (Antigravity, Ollama)
+    Any other installed CLI is offered with its models and marked `unchecked`: if it is not signed in, its own error shows on first use.
+    `installed` is False for a server that does not answer or a key that is not set, so only what is really here is listed.
+    `why` says what is missing, for the panel and `doctor`."""
     ais = {}
-    exe = shutil.which("claude")
-    ok = bool(exe) and _run([exe, "-p", "reply with the word ok"], 90)[0] == 0
-    ais["claude"] = {"installed": bool(exe), "logged_in": ok, "models": CLAUDE_MODELS if ok else []}
-    exe = shutil.which("agy")
-    rc, out = _run([exe, "models"], 60) if exe else (1, "")
-    models = parse_agy_models(out) if rc == 0 else []
-    ais["agy"] = {"installed": bool(exe), "logged_in": bool(models), "models": models}
     for pid, spec in providers.registry(cfg).items():
-        if pid in ais or spec.get("native"):
-            continue
-        here = bool(shutil.which(spec["exe"]))
-        found = providers.list_models(spec) if here else []
-        models = list(dict.fromkeys(found + [m for m in spec["models"]])) if here else []
-        ais[pid] = {"installed": here, "logged_in": here and bool(models), "models": models, "name": spec["name"]}
+        rec, ok = {"name": spec["name"], "installed": bool(which(spec["exe"])), "models": list(spec["models"])}, True
+        if not rec["installed"]:
+            ok = False
+        elif spec.get("server"):
+            found = server_models(spec["server"], get)
+            rec["installed"], rec["models"] = found is not None, found or []
+            if not found:
+                rec["why"] = ("no model here can use tools: " if found is not None else f"nothing answers at {spec['server']}: ") + spec["login_hint"]
+        elif key := providers.missing_key(spec, environ):
+            rec["installed"], rec["why"] = False, f"set {key} in your environment (your key from {spec.get('url', 'its website')}), then press d"
+        elif spec.get("status_cmd"):
+            ok = providers.signed_in(spec, run)
+        elif spec.get("models_cmd"):
+            rec["models"] = list(dict.fromkeys(providers.list_models(spec, run) + rec["models"]))
+        else:
+            rec["unchecked"] = True
+        rec["logged_in"] = rec["installed"] and ok and bool(rec["models"])
+        if rec["installed"] and not rec["logged_in"]:
+            rec.setdefault("why", spec["login_hint"])
+        ais[pid] = rec
     return ais
 
 

@@ -55,7 +55,7 @@ def _isolated(monkeypatch, tmp_path):
 
 # ---- the menu --------------------------------------------------------------------------------------------------
 def test_lists_installed_and_missing_and_does_not_ask_when_nothing_is_missing():
-    f = Fake(have={"claude", "agy", "codex", "gemini", "ollama"})
+    f = Fake(have=set(catalog.IDS))
     rc, out = f.go()
     assert rc == 0 and f.asked == [] and f.ran == []
     assert "[x] Claude Code" in out and "[x] Antigravity CLI" in out and "installed" in out
@@ -131,7 +131,7 @@ def test_install_flag_runs_without_asking_and_skips_what_is_already_there():
 
 def test_install_all_and_unknown_names():
     f = Fake()
-    assert f.go(only=["all"], assume_yes=True)[0] == 0 and len(f.ran) == 5
+    assert f.go(only=["all"], assume_yes=True)[0] == 0 and len(f.ran) == len(catalog.AIS)
     g = Fake()
     rc, out = g.go(only=["claude", "gpt"], assume_yes=True)
     assert rc == 2 and g.ran == [] and "Unknown AI: gpt" in out
@@ -170,7 +170,8 @@ def test_cli_ais_lists_and_rejects_unknown(capsys):
 def test_catalog_commands_are_the_vendors_own_and_documented_in_requirements():
     readme = (ROOT / "requirements" / "README.md").read_text(encoding="utf-8").replace("\\|", "|")
     hosts = {"claude": "https://claude.ai/install.", "agy": "https://antigravity.google/cli/install.", "codex": "npm install -g @openai/codex",
-             "gemini": "npm install -g @google/gemini-cli", "ollama": "https://ollama.com/install."}
+             "gemini": "npm install -g @google/gemini-cli", "ollama": "https://ollama.com/install.", "grok": "https://x.ai/cli/install.",
+             "copilot": "npm install -g @github/copilot"}
     for e in catalog.AIS:
         assert {"id", "name", "exe", "required", "why", "url", "install", "login"} <= set(e)
         for system, cmd in e["install"].items():

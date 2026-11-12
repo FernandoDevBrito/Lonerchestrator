@@ -328,6 +328,7 @@ def terminal_shot(exe, project, out):
 VIEWS = [  # name, query, width, height
     ("board", "tab=Board", 1360, 520), ("flow", "tab=Flow&card=006-dark-mode", 1360, 640), ("planner", "tab=Planner", 1360, 940), ("agents", "tab=Agents", 1360, 760),
     ("ais", "tab=AIs", 1360, 1200), ("settings", "tab=Settings", 1360, 1000), ("card", "tab=Board&open=006-dark-mode", 1360, 900),
+    ("map", "tab=Map&src=005-order-export-csv", 1360, 860),
     ("new-request", "tab=Board&new=1&text=Let%20shoppers%20save%20products%20to%20a%20wishlist%20and%20get%20an%20email%20when%20one%20goes%20on%20sale", 1360, 760),
 ]
 

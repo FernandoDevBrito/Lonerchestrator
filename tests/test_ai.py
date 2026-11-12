@@ -43,6 +43,15 @@ def test_a_non_claude_reviewer_gets_the_review_inlined_and_read_only(tmp_path):
     assert run.calls[1][0] == "claude" and str(f.as_posix()) in run.calls[1][1][2]                # Claude reads the file itself
 
 
+def test_claude_code_on_another_server_is_claude_code_with_its_spec_and_plain_claude_is_unchanged():
+    run, ins, reg = Run(), lambda agent: "", ai.registry()
+    for pid in ("ollama-claude", "lmstudio", "minimax", "deepseek", "zai", "kimi", "openrouter"):
+        assert isinstance(reg[pid], ai.ClaudeCode) and reg[pid].can_edit and reg[pid].spec["exe"] == "claude"
+    reg["ollama-claude"].call(run, "builder", "backend", "qwen3-coder", "do it", "edit", ins)
+    reg["claude"].call(run, "builder", "backend", "sonnet", "do it", "edit", ins)
+    assert run.calls[0][2]["via"]["id"] == "ollama-claude" and run.calls[1][2] == {"model": "sonnet"}
+
+
 def test_ask_goes_through_the_right_door(monkeypatch):
     from orch import suggest
     monkeypatch.setattr(suggest, "ask_claude", lambda prompt, cwd=None, model="x": f"claude:{model}")

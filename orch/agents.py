@@ -121,11 +121,12 @@ class Runner:
         return args
 
     # public API used by the pipeline (tests replace this class with a fake)
-    def claude(self, role, agent, prompt, model=None, effort=None):
+    def claude(self, role, agent, prompt, model=None, effort=None, via=None):
+        """`via`: a provider that is Claude Code talking to another model server (providers.claude_env): its environment, its usage."""
         exe = shutil.which("claude") or "claude"
         cmd = [exe, "-p", "--verbose", "--output-format", "stream-json", "--add-dir", *self.dirs(), *self._claude_files(agent, model),
                "--permission-mode", "acceptEdits", *(["--model", model] if model else []), *(["--effort", effort] if effort else []), prompt]
-        return self._run(role, cmd, claude=True)
+        return self._run(role, cmd, claude=True, **({"spec": via, "model": model} if via else {}))
 
     def provider(self, role, pid, model, prompt, mode="read", effort=None):
         """Any AI CLI described in the registry (presets + config `providers`). mode: "edit" may change project files, "read" must not."""
@@ -165,8 +166,13 @@ class Runner:
 
     def _once(self, role, cmd, claude, model=None, spec=None, stdin=None, ptok=0):
         t0 = time.time()
+        env = providers.claude_env(spec, model) if claude and spec else None
         p = subprocess.Popen(cmd, cwd=self.project, stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
+        limit = self.cfg.get("card_timeout_min", 45) * 60
+        watchdog = threading.Timer(limit, p.kill)          # a CLI waiting for an approval or a dead server must not hang the run forever
+        watchdog.daemon = True
+        watchdog.start()
         if stdin is not None:                      # written from a thread so a big prompt cannot deadlock against our reading of the output
             def feed():
                 try:
@@ -180,7 +186,7 @@ class Runner:
             raw.append(line)
             out = line
             if claude:
-                self._count(line, role)
+                self._count(line, role, spec)
                 out, final = self._fmt(line, final)
                 if out and not self.cfg.get("verbose") and not out.startswith(("> ", "==")):
                     shown.append(out)
@@ -192,6 +198,9 @@ class Runner:
                 if claude or self.cfg.get("verbose"):
                     self.log.say(role, out)
         rc = p.wait()
+        watchdog.cancel()
+        if time.time() - t0 >= limit:
+            self.log.say(role, f"!! no answer in {limit // 60:g} min (card_timeout_min): stopped")
         if not claude:
             spec = spec or providers.registry(self.cfg)["agy"]
             answer, u = providers.parse_output(spec, "".join(raw))
@@ -209,9 +218,9 @@ class Runner:
             return rc, answer, "".join(raw)
         return rc, (final if final is not None else "".join(shown)), "".join(raw)
 
-    def _count(self, line, role):
+    def _count(self, line, role, spec=None):
         try:
-            self.usage.feed_claude(json.loads(line), role)
+            self.usage.feed_claude(json.loads(line), role, spec)
         except (ValueError, AttributeError):
             pass
 

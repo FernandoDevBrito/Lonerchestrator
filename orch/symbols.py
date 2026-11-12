@@ -536,3 +536,62 @@ def parse(path, text):
     code_lines = stripper.sub(_blank, text).split("\n")
     syms = _outline("\n".join(code_lines), scopes)
     return syms, _uses(lang, code_lines, text.split("\n"), syms, bases_rx), ""
+
+
+# ---------------------------------------------------------------- what a declaration says it does (the Map page)
+
+_MARK = re.compile(r"^(?:///?!?|/\*\*?|\*/|\*|#(?![\[!])|--)\s?")
+_XML = re.compile(r"</?(?:summary|remarks|para)>")                         # C# /// comments
+MAX_DOC = 300
+
+
+def _paragraph(lines):
+    out = []
+    for ln in lines:
+        ln = _XML.sub("", ln)
+        if not ln.strip() or ln.lstrip().startswith(("@", "<")):            # a blank line or a JSDoc, Javadoc or C# tag ends the description
+            if out:
+                break
+            continue
+        out.append(ln.strip())
+    text = " ".join(out)
+    return text if len(text) <= MAX_DOC else text[:MAX_DOC - 1].rstrip() + "…"
+
+
+def _comment_above(lines, start):
+    got, i = [], start - 2
+    while i >= 0:
+        s = lines[i].strip()
+        if s.startswith(("@", "[", "#[")) and not got:                       # an annotation or attribute between the comment and the line
+            i -= 1
+            continue
+        m = _MARK.match(s)
+        if not s or not m:
+            break
+        got.append(s[m.end():].removesuffix("*/"))
+        i -= 1
+    return _paragraph(reversed(got))
+
+
+def docs(path, text, starts):
+    """{start line: what the code says it does} for the declarations starting at those lines: the first paragraph of a Python docstring,
+    else the comment lines right above. Start 0 asks for the file's own docstring (Python). Starts with nothing to say are left out."""
+    if not text:
+        return {}
+    lines, own = text.split("\n"), {}
+    if lang_of(path) == "python":
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            own[0] = ast.get_docstring(tree) or ""
+            for n in ast.walk(tree):
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    own[min([d.lineno for d in n.decorator_list] + [n.lineno])] = ast.get_docstring(n) or ""
+    out = {}
+    for st in starts:
+        doc = _paragraph(own.get(st, "").split("\n")) or (_comment_above(lines, st) if st > 0 else "")
+        if doc:
+            out[st] = doc
+    return out

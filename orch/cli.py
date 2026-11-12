@@ -92,6 +92,8 @@ def ensure_trust(project, cfg):
     print(f"\nThis project runs this command on your machine for every card:\n\n    {clean(folder.render(cfg['ci'], home, cfg))}\n\n(from {home / 'config.json'})")
     for pid, p in (cfg.get("providers") or {}).items():
         print(f"and it starts this AI program ('{clean(pid)}'): {clean(' '.join(map(str, p.get('cmd', []))))}")
+        if p.get("server") or p.get("env"):          # Claude Code pointed elsewhere: your code goes to that server
+            print(f"    Claude Code sends your code to: {clean(str(p.get('server') or (p.get('env') or {}).get('ANTHROPIC_BASE_URL', '(see its env)')))}")
     if not sys.stdin.isatty():
         print("It is not approved yet. Read it, then run:  lonerchestrator trust")
         return False

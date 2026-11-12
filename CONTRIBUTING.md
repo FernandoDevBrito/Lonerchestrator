@@ -31,6 +31,7 @@ CI runs both on Linux, macOS and Windows with Python 3.10 and 3.12.
 ## Good first contributions
 
 - Run it on macOS or Linux and report what breaks (or fix it).
+- Test the AIs that were written from vendor docs, for real, in Docker: the task and its checklist are in [`docs/testing-ais.md`](docs/testing-ais.md).
 - More terminal launchers in `orch/term.py` (`window_command`).
 - Tests for edge cases in card parsing and guardrails.
 - Translations of the README.
@@ -50,7 +51,7 @@ Small, explicit extension points instead of long `if` chains. Each one has a tes
 | an AI with its own integration | a subclass of `ai.AI` (`call`, `review`, `ask`) | `orch/ai.py` |
 | a "Ready to run?" check | a function `check_x(env)` returning `(status, title, hint)` tuples, added to `CHECKS` | `orch/checks.py` |
 | a language/tool the project study recognises | a function `detect_x(found)`, added to `DETECTORS` | `orch/scout.py` |
-| a web API endpoint | a method decorated `@route("POST", "/api/x", takes="body")` | `orch/web.py`, `web_ais.py`, `web_settings.py`, `web_graph.py`, `web_git.py` |
+| a web API endpoint | a method decorated `@route("POST", "/api/x", takes="body")` | `orch/web.py`, `web_ais.py`, `web_settings.py`, `web_graph.py`, `web_git.py`, `web_map.py` |
 | a command | a `cmd_x` function, an entry in `COMMANDS` and a sub-parser | `orch/cli.py` |
 | a file the orchestrator keeps for a project | a path under `folder.of(project)`, never in the project; add it to `migrate` if older versions kept it in the project | `orch/folder.py`, `tests/test_cli.py` |
 

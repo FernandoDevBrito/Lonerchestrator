@@ -556,7 +556,7 @@ def ai_rows(x):
         state = "logged in" if info.get("logged_in") else ("not logged in" if info.get("installed") else "not installed")
         rows.append(("head", cli, label, state if info else "not detected \u00b7 press d"))
         if info and not info.get("logged_in"):
-            rows.append(("hint", spec.get("login_hint" if info.get("installed") else "install_hint", "")))
+            rows.append(("hint", info.get("why") or spec.get("login_hint" if info.get("installed") else "install_hint", "")))
         rows += [("item", menu.keyof(c, m)) for c, m in x.avail if c == cli]
     return rows
 
@@ -653,7 +653,7 @@ def handle_ais(key, ui, x):
         import threading
 
         from . import intro
-        threading.Thread(target=lambda: intro.save_ais(x.project, intro.detect()), daemon=True).start()
+        threading.Thread(target=lambda: intro.save_ais(x.project, intro.detect(x.cfg)), daemon=True).start()     # x.cfg: your own providers too
         ui.msg = "detecting logged-in AIs (a few seconds)..."
     else:
         return False

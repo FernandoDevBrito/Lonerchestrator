@@ -18,6 +18,7 @@ from .view import NOW, PHASE_IDX, STAGES, _json, load_events, reviewer_status, s
 from .web_ais import AisApi
 from .web_git import GitApi
 from .web_graph import GraphApi
+from .web_map import MapApi
 from .web_settings import SettingsApi
 from .webcore import ANSI, ID, Bad, find_route, route
 
@@ -26,7 +27,7 @@ MAX_BODY = 64 * 1024
 ASSETS = {"/app.js": "text/javascript", "/style.css": "text/css"}
 
 
-class App(AisApi, SettingsApi, GraphApi, GitApi):
+class App(AisApi, SettingsApi, GraphApi, GitApi, MapApi):
     """The API, independent of HTTP so it is easy to test. Every method returns JSON-able data or raises Bad."""
 
     def __init__(self, project, base, runner):

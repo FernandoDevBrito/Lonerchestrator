@@ -1,6 +1,6 @@
 import json
 
-from orch import folder, intro, view
+from orch import folder, intro, providers, view
 
 AIS = {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "opus", "haiku"]},
        "agy": {"installed": True, "logged_in": True, "models": ["gemini-4-argon-high", "gemini-3.8-flash-high"]}}
@@ -8,7 +8,7 @@ AIS = {"claude": {"installed": True, "logged_in": True, "models": ["sonnet", "op
 
 def test_parse_agy_models():
     out = "Fetching available models...\ngemini-4-argon-high\tGemini 4 Argon (High)\nclaude-opus-5-5-low\tClaude Opus\n"
-    assert intro.parse_agy_models(out) == ["gemini-4-argon-high", "claude-opus-5-5-low"]
+    assert providers.parse_models(out, "tab") == ["gemini-4-argon-high", "claude-opus-5-5-low"]
 
 
 def test_intro_assume_yes_writes_roles_and_prints_board(project, capsys):

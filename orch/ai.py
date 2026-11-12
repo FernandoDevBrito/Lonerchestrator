@@ -1,6 +1,7 @@
 """One object per AI the orchestrator can use (Strategy). Callers say WHAT they want (a role, a prompt, edit or read); each AI knows HOW to be called.
 
-    ClaudeCode   native: the agent, its permissions and the rules from the project's folder become its own (agents.Runner), its stream
+    ClaudeCode   native: the agent, its permissions and the rules from the project's folder become its own (agents.Runner), its stream;
+                 also Claude Code talking to another model server (Ollama, LM Studio, MiniMax...: providers.claude_env)
     GenericCLI   anything described in the provider registry: the role text and project rules travel inside the prompt
 
 Adding an AI with an integration of its own is a new subclass; adding one that only needs a command line is a `providers` entry, no code."""
@@ -12,6 +13,11 @@ from . import providers
 def _eff(effort):
     """Only pass effort when one is set, so runners (and test fakes) without it keep working."""
     return {"effort": effort} if effort else {}
+
+
+def _via(spec):
+    """Only pass `via` for Claude Code pointed at another server, so plain Claude calls (and test fakes) stay as they were."""
+    return {"via": spec} if providers.via_claude(spec) else {}
 
 
 class AI:
@@ -52,15 +58,17 @@ class ClaudeCode(AI):
     native = True
 
     def call(self, run, role, agent, model, prompt, mode, instructions, effort=None):
-        return run.claude(role, agent, prompt, model=model, **_eff(effort))
+        return run.claude(role, agent, prompt, model=model, **_eff(effort), **_via(self.spec))
 
     def review(self, run, name, agent, model, cid, review_path, instructions, effort=None):
         note = f"Review input (card without plan/log, diff, CI tail): {review_path.as_posix()}."
-        return run.claude(name, agent, f"Evaluate card {cid}. {note} Follow your agent instructions.", model=model, **_eff(effort))
+        return run.claude(name, agent, f"Evaluate card {cid}. {note} Follow your agent instructions.", model=model, **_eff(effort), **_via(self.spec))
 
     def ask(self, model, prompt, cwd=None):
         from . import suggest  # late: suggest.ask_claude is the one place that talks to `claude -p` (tests replace it)
-        return suggest.ask_claude(prompt, cwd=cwd, model=model or "haiku")
+        if not _via(self.spec):
+            return suggest.ask_claude(prompt, cwd=cwd, model=model or "haiku")
+        return None if providers.missing_key(self.spec) else suggest.ask_claude(prompt, cwd=cwd, model=model, env=providers.claude_env(self.spec, model))
 
 
 class GenericCLI(AI):

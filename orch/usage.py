@@ -72,16 +72,22 @@ class Usage:
         with _lock, (self.run_dir / "usage.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
 
-    def feed_claude(self, ev, role):
-        """One stream-json event from `claude -p`."""
+    def feed_claude(self, ev, role, spec=None):
+        """One stream-json event from `claude -p`. `spec`: Claude Code was talking to another server (providers.claude_env), so the tokens
+        are that AI's, priced with its `price` (Claude Code's own cost uses Anthropic's prices) and its limits are not your Claude account's."""
         t = ev.get("type")
-        if t == "rate_limit_event" and ev.get("rate_limit_info"):
+        if t == "rate_limit_event" and ev.get("rate_limit_info") and not spec:
             set_claude_limits(ev["rate_limit_info"])
         elif t == "result":
             secs = ev.get("duration_ms", 0) / 1000
             for key, m in (ev.get("modelUsage") or {}).items():
                 tin = m.get("inputTokens", 0) + m.get("cacheReadInputTokens", 0) + m.get("cacheCreationInputTokens", 0)
-                self.add("claude", alias(key), role, tin, m.get("outputTokens", 0), m.get("costUSD", 0), secs)
+                tout = m.get("outputTokens", 0)
+                if spec:
+                    price = spec.get("price") or {}
+                    self.add(spec["id"], key, role, tin, tout, (tin * price.get("in", 0) + tout * price.get("out", 0)) / 1e6, secs)
+                else:
+                    self.add("claude", alias(key), role, tin, tout, m.get("costUSD", 0), secs)
 
     def feed_agy(self, obj, role, model):
         """The JSON object printed by `agy --output-format json -p`."""

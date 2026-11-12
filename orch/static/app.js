@@ -1,9 +1,10 @@
 "use strict";
 const TOKEN = new URLSearchParams(location.search).get("t") || "";
-const TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings", "Git"];
+const TABS = ["Board", "Flow", "Planner", "Agents", "AIs", "Settings", "Git", "Map"];
 const TAB_HELP = {Board: "Every card by state. Drag to hold or re-queue; reorder the backlog to set priority", Flow: "Where one card is in the pipeline, step by step",
   Planner: "Read a card's goal, plan and tasks, and answer the planner's questions", Agents: "Live output of each AI", AIs: "Which AIs are on, who does what, usage and limits",
-  Settings: "Is the project ready to run, and its options", Git: "What changed in your folder: see each diff, commit what you pick, push and pull"};
+  Settings: "Is the project ready to run, and its options", Git: "What changed in your folder: see each diff, commit what you pick, push and pull",
+  Map: "Your work or a card's change as a mind map: what is being done, where, and what each changed function does"};
 const STAGE_HELP = {SPLIT: "A card that is too big is broken into smaller cards that run next.", PLAN: "An AI reads the card and writes a plan and a task list. If something is vague it asks you instead of guessing.",
   BUILD: "The builder AI writes the code for the tasks, inside its own branch.", CHECKS: "Rules first (protected files, diff size, no deleted tests, no secrets), then your CI: lint, tests, build.",
   REVIEW: "Independent reviewers (they did not write the code) check the change against the acceptance criteria.", MERGE: "Approved work is committed and merged into the base branch. Nothing is ever deployed."};
@@ -89,7 +90,7 @@ function morphKids(a, b) {
 function morphInto(host, kids, animate) {
   const before = new Map(), flip = animate && !calm;
   if (flip) {                                                       // measure the cards at rest: an animation in flight would give a false position
-    host.getAnimations({subtree: true}).forEach(a => a.finish());
+    host.getAnimations({subtree: true}).forEach(a => { if (a.effect && a.effect.getComputedTiming().endTime !== Infinity) a.finish(); });   // the loading shimmer never ends: finish() would throw
     host.querySelectorAll(".card[data-k]").forEach(e => before.set(e.dataset.k, e.getBoundingClientRect()));
   }
   morphKids(host, h("div", {}, kids));
@@ -110,7 +111,7 @@ function enter(el) {
 }
 
 // ---------------------------------------------------------------- header + tabs
-function go(t) { tab = t; renderTabs(); refresh(true); }
+function go(t) { if (t === "Map" && tab !== "Map") loadMap(); tab = t; renderTabs(); refresh(true); }
 function renderHead(s) {
   morphInto($("proj"), [h("span", {key: "n"}, s.project), h("span", {class: "br", key: "b"}, s.base)]);
   morphInto($("pills"), [...s.pills.map(p => h("span", {class: "pill" + (p.ok ? "" : " off"), key: p.id, title: p.ok ? p.id + " is ready" : p.id + " is not ready (see Settings)"}, p.id)),
@@ -419,6 +420,89 @@ async function renderGit() {
   return h("div", {class: "grid two", style: "grid-template-columns:minmax(300px,460px) 1fr"}, h("div", {class: "grid"}, sync, changes), h("div", {class: "grid"}, diff, hist));
 }
 
+// ---------------------------------------------------------------- Map: a change as a mind map (mindmap.py)
+// The center is what is being done, the branches are where (the card's tasks, or folders), the leaves are the changed files and what each
+// changed function does. It is read when the tab opens, the source changes or Refresh is clicked; the refresh loop only redraws it.
+const M = {src: LINK.get("src") || "work", d: null, err: "", busy: false, seq: 0, sel: "", lines: {}, said: {}, asking: "", more: new Set()};
+const MAP_SYMS = 12;                                                // changed symbols shown per file before "more"
+function loadMap(src) {
+  if (src !== undefined && src !== M.src) { M.src = src; M.d = null; }
+  const n = ++M.seq;
+  Object.assign(M, {busy: true, err: "", sel: "", lines: {}, said: {}, more: new Set()});
+  api("/api/map?src=" + encodeURIComponent(M.src)).then(d => { if (n === M.seq) M.d = d; }, e => { if (n === M.seq) M.err = e.message; })
+    .finally(() => { if (n === M.seq) { M.busy = false; refresh(true); } });
+}
+function pickSym(sid) {
+  M.sel = sid; refresh(true);
+  const n = M.seq;
+  if (!sid || sid in M.lines) return;
+  api("/api/map?src=" + encodeURIComponent(M.src) + "&sym=" + sid).then(r => r.lines, e => e.message).then(L => { if (n === M.seq) { M.lines[sid] = L; refresh(true); } });
+}
+function explainSym(sid) {
+  const n = M.seq;
+  M.asking = sid; refresh(true);
+  api("/api/map/explain", {src: M.src, sym: sid}).then(r => { if (n === M.seq) M.said[sid] = r.text; }, e => toast(e.message))
+    .finally(() => { M.asking = ""; refresh(true); });
+}
+function renderMap() {
+  if (!M.d && !M.busy && !M.err) loadMap();
+  const d = M.d, m = d && d.map, plural = (k, w) => k + " " + (k === 1 ? w : w + "s");
+  const sources = d ? d.sources : [{id: M.src, title: M.src === "work" ? "Your uncommitted work" : M.src, state: ""}];
+  const head = h("div", {class: "box", key: "head"}, h("div", {class: "row", style: "margin:0"},
+    h("select", {ariaLabel: "What to map", class: "mpick", onchange: ev => loadMap(ev.target.value)},
+      sources.map(s => h("option", {value: s.id, selected: s.id === M.src}, s.state ? s.id + ": " + s.title + " (" + s.state + ")" : s.title))),
+    h("button", {disabled: M.busy, title: "Read the change again", onclick: () => loadMap()}, M.busy ? "Reading…" : "Refresh"),
+    M.src !== "work" ? h("button", {class: "quiet", title: "The same change as a graph of everything it touches", onclick: () => openGraph(M.src)}, "Change graph") : null,
+    m && m.stats.files ? h("span", {class: "ev mono"}, plural(m.stats.files, "file") + ", " + plural(m.stats.symbols, "change") + ", +" + m.stats.added + " -" + m.stats.removed + (m.base ? " against " + m.base : "")) : null));
+  const wrap = (main, side) => h("div", {class: "grid mlay" + (side ? " sel" : "")}, h("div", {class: "grid", key: "main"}, head, main), side || null);
+  if (M.err) return wrap(h("div", {class: "box"}, h("div", {class: "empty"}, h("b", {}, "Could not read this change"), M.err)));
+  if (!d) return wrap(h("div", {class: "box"}, h("div", {class: "sk", style: "height:220px"})));
+  const all = new Map();
+  m.branches.forEach(b => b.files.forEach(f => f.symbols.forEach(s => all.set(s.id, {s, f}))));
+  const said = s => s.doc || M.said[s.id] || "";
+  const sym = s => h("button", {class: "msym" + (s.id === M.sel ? " on" : ""), key: s.id, onclick: () => pickSym(s.id === M.sel ? "" : s.id)},
+    h("span", {class: "mname"}, h("span", {class: "gst " + s.status}, MARK[s.status] || "."), " ", s.kind === "module" ? "Module level" : s.qual || s.name,
+      h("span", {class: "ev"}, " " + s.kind), s.hot ? h("span", {class: "chip q"}, "hotspot") : null),
+    said(s) ? h("span", {class: "mdoc"}, said(s)) : null);
+  const file = f => {
+    const many = f.symbols.length > MAP_SYMS && !M.more.has(f.path);
+    return h("li", {key: f.path}, h("div", {class: "mnode mfile"},
+      h("div", {class: "mfh"}, h("span", {class: "gst " + f.status}, FILE_LETTER[f.status] || "M"), h("b", {class: "mono"}, f.path), h("span", {class: "ev mono"}, "+" + f.added + " -" + f.removed)),
+      f.note ? h("p", {class: "ev"}, f.note) : null,
+      (many ? f.symbols.slice(0, MAP_SYMS) : f.symbols).map(sym),
+      many ? h("button", {class: "quiet", onclick: () => { M.more.add(f.path); refresh(true); }}, (f.symbols.length - MAP_SYMS) + " more") : null));
+  };
+  const branch = (b, i) => h("li", {key: "b" + i + b.label},
+    h("div", {class: "mnode mbranch" + (b.done ? " done" : "")}, b.label, " ",
+      b.done === null ? null : h("span", {class: "chip" + (b.done ? " ok" : "")}, b.done ? "done" : "to do"), h("span", {class: "ev mono"}, " " + plural(b.files.length, "file"))),
+    b.files.length ? h("ul", {class: "mkids"}, b.files.map(file)) : null);
+  const done = m.tasks.filter(t => t.done).length;
+  const tree = m.branches.length ? h("div", {class: "box mmap", key: "map"}, h("div", {class: "mtree"},
+    h("div", {class: "mnode mroot"}, h("b", {}, m.title), m.tasks.length ? h("span", {class: "ev"}, done + " of " + plural(m.tasks.length, "task") + " done") : null),
+    h("ul", {class: "mkids"}, m.branches.map(branch))))
+    : h("div", {class: "box", key: "map"}, h("div", {class: "empty"}, h("b", {}, d.why || "Nothing to show"), "Pick another source above, or change some files and click Refresh."));
+  const tasks = m.tasks.length > 0 && !m.branches.some(b => b.done !== null) ? h("div", {class: "box", key: "tasks"}, h("h2", {class: "t"}, "Tasks",
+    h("span", {class: "n"}, "no task names its files, so the map is by folder")), list(m.tasks, true)) : null;
+  const hit = all.get(M.sel), main = h("div", {class: "grid", key: "m"}, tree, tasks);
+  if (!hit) return wrap(main);
+  const {s, f} = hit, L = M.lines[s.id], pad = v => (v == null ? "" : String(v)).padStart(4);
+  const link = x => all.has(x.id) ? h("button", {class: "gitem", key: x.id, onclick: () => pickSym(x.id)}, x.label, h("span", {class: "ev"}, " " + x.kind)) : h("p", {class: "ev mono", key: x.id}, x.label + " (" + x.kind + ")");
+  const what = s.doc ? h("p", {}, s.doc) : M.said[s.id] ? h("p", {}, M.said[s.id], h("span", {class: "ev"}, " (explained by the suggester AI)"))
+    : s.kind === "module" ? h("p", {class: "ev"}, "The lines of the file outside any function or class.")
+    : h("div", {}, h("p", {class: "ev"}, "It has no docstring or comment."), h("button", {disabled: M.asking === s.id,
+      title: "One small read-only call to the AI in the suggester role, with this code and nothing else", onclick: () => explainSym(s.id)}, M.asking === s.id ? "Asking…" : "Explain"));
+  const side = h("div", {class: "box mside", key: "side"},
+    h("h2", {class: "t"}, h("span", {class: "mono"}, s.kind === "module" ? f.path : s.qual || s.name), h("button", {class: "quiet", onclick: () => pickSym("")}, "Close")),
+    h("p", {class: "ev mono"}, f.path + ":" + s.line + (s.old ? " (before the change)" : "") + ", " + s.kind + ", " + s.status + " +" + s.added + " -" + s.removed),
+    h("h4", {}, "What it does"), what,
+    h("h4", {}, "Uses (" + s.uses.length + ")"), s.uses.length ? s.uses.map(link) : h("p", {class: "ev"}, "Nothing in this change."),
+    h("h4", {}, "Used by (" + s.usedBy.length + ")"), s.usedBy.length ? s.usedBy.map(link) : h("p", {class: "ev"}, "Nothing in this change."),
+    h("h4", {}, "Diff"), L === undefined ? h("div", {class: "sk", style: "height:64px"}) : typeof L === "string" ? h("p", {class: "ev"}, L)
+      : !L.length ? h("p", {class: "ev"}, "No changed line inside it.")
+      : h("pre", {class: "gdiff"}, L.map(([o, nn, t]) => h("span", {class: t[0] === "+" ? "a" : t[0] === "-" ? "r" : ""}, pad(o) + " " + pad(nn) + "  " + t + "\n"))));
+  return wrap(main, side);
+}
+
 // ---------------------------------------------------------------- Change graph: one card's diff as the symbols it changed and what uses them
 // A full-screen <dialog>. The server sends the model (graph.py) already filtered and laid out (graphview.layout); the page only draws it,
 // SVG element by SVG element. Every name in it comes from the repository, so it only ever becomes text, never markup.
@@ -700,7 +784,7 @@ async function refresh() {
   try {
     const s = await api("/api/state"); S = s; renderHead(s); renderTabs(); setAreas(s.areas || []);
     const body = t === "Board" ? renderBoard(s) : t === "Flow" ? await renderFlow() : t === "Planner" ? await renderPlanner(s)
-      : t === "Agents" ? await renderAgents() : t === "AIs" ? await renderAIs() : t === "Git" ? await renderGit() : await renderSettings();
+      : t === "Agents" ? await renderAgents() : t === "AIs" ? await renderAIs() : t === "Git" ? await renderGit() : t === "Map" ? renderMap() : await renderSettings();
     if (t !== tab) return;
     const logs = t === "Agents" ? [...document.querySelectorAll("pre.log")].map(p => [p.id, p.scrollTop + p.clientHeight >= p.scrollHeight - 4]) : [];
     const switched = shown !== t;
@@ -745,9 +829,11 @@ function showHelp() {
     h("p", {class: "ev"}, "You write a request in plain words. AIs plan it, build it, check it and review it; it is merged only when every reviewer approves. If anything is unclear, the card lands in Needs you with questions."),
     h("h4", {}, "The steps every card goes through"), steps(Object.entries(STAGE_HELP)),
     h("h4", {}, "Board columns"), steps([["Backlog", "Waiting its turn. Drag cards to set the order."], ["In progress", "An AI is working on it now."], ["Needs you", "Questions for you, or held by you. Answer them in the card."], ["Done", "Approved and merged."]]),
-    h("h4", {}, "Keys"), steps([["1 to 7", "switch tab"], ["n", "new request"], ["/", "filter cards"], ["t", "switch theme"], ["g", "change graph of the open card"], ["?", "this help"], ["Esc", "close a panel"]]),
+    h("h4", {}, "Keys"), steps([["1 to 8", "switch tab"], ["n", "new request"], ["/", "filter cards"], ["t", "switch theme"], ["g", "change graph of the open card"], ["?", "this help"], ["Esc", "close a panel"]]),
     h("h4", {}, "Change graph"), steps([["What", "The functions, classes and files a card changed, and what they use or are used by. Hotspots are the most connected changes: start there."],
-      ["Keys", "drag to pan, wheel or + and - to zoom, f fit, l list, / search, Esc back"]]));
+      ["Keys", "drag to pan, wheel or + and - to zoom, f fit, l list, / search, Esc back"]]),
+    h("h4", {}, "Map"), steps([["What", "Your uncommitted work, or one card's change, as a mind map: the card's tasks (or the folders), the files each one changed, and what every changed function or class does."],
+      ["Explain", "A function with no docstring or comment gets an Explain button: one small read-only call to the AI in the suggester role, with that code only. The answer is kept, so the same code is asked once."]]));
   hb.showModal();
 }
 $("helpbtn").onclick = showHelp;
@@ -776,7 +862,7 @@ document.addEventListener("keydown", e => {
   const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) || nb.open || hb.open;
   if (e.key === "Escape") { if (document.activeElement === $("q") && filt.q) { $("q").value = ""; filt.q = ""; refresh(true); } closeDrawer(); }
   else if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-  else if (/^[1-7]$/.test(e.key)) go(TABS[+e.key - 1]);
+  else if (/^[1-8]$/.test(e.key)) go(TABS[+e.key - 1]);
   else if (e.key === "n") { e.preventDefault(); $("newbtn").click(); }
   else if (e.key === "/") { e.preventDefault(); if (!["Board", "Planner"].includes(tab)) go("Board"); $("q").focus(); }
   else if (e.key === "t") cycleTheme();

@@ -110,6 +110,8 @@ class Pipeline:
                 raise SystemExit(f"{label} uses {who.name}, which cannot edit files. Give that role an AI that can (AIs tab), keep {who.name} for reviewing")
             if required and not who.installed():
                 raise SystemExit(f"{label} needs {who.name} ('{who.spec['exe']}' is not installed). Run `lonerchestrator ais` to install it, or pick another AI for {label} in the AIs tab")
+            if required and (key := providers.missing_key(who.spec)):
+                raise SystemExit(f"{label} uses {who.name}, which needs its API key in {key}: set it in your environment, or pick another AI for {label} in the AIs tab")
 
     def run(self, only=None):
         self.git.checkout(self.base)

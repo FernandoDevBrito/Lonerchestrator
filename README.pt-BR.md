@@ -236,7 +236,7 @@ Verificados por **código**, não por prompt, antes dos testes:
 lonerchestrator web
 ```
 
-Tudo que o painel do terminal faz, no navegador, servido só para o seu computador (`127.0.0.1`, com um token aleatório no link que ele imprime). Sete abas (teclas `1`-`7`), que se atualizam sozinhas enquanto o pipeline roda:
+Tudo que o painel do terminal faz, no navegador, servido só para o seu computador (`127.0.0.1`, com um token aleatório no link que ele imprime). Oito abas (teclas `1`-`8`), que se atualizam sozinhas enquanto o pipeline roda:
 
 <p align="center">
 <picture>
@@ -274,6 +274,15 @@ Tudo que o painel do terminal faz, no navegador, servido só para o seu computad
 - **AIs:** quais modelos de IA estão ligados, quem faz o quê (splitter, planner, builder, retro, suggester, qa, cross), os limites da conta Claude ao vivo (sessão e semana, com a hora do reset), tokens e chamadas por modelo desta execução e de todas, *Detect again* e *Refresh limits*.
 - **Settings:** "Ready to run?" com o conserto exato de cada item, e todas as configurações (branch base, comando de CI, tentativas, cards ao mesmo tempo, builders por card, limites...). Salvar o comando de CI o aprova, como no terminal.
 - **Git:** a sua pasta como o TortoiseGit mostra. Cada arquivo alterado (novo, modificado, apagado, renomeado) com uma caixa para escolher e o diff a um clique; uma mensagem e *Commit* (ou *Commit & push*) commita só os arquivos escolhidos, e o que você deixou em stage em outros arquivos continua lá. *Fetch*, *Pull* (só fast-forward: nunca um commit de merge) e *Push* (o primeiro push publica a branch), quantos commits há para enviar e para trazer, e os últimos 30 commits com os que faltam enviar marcados (*to push*). Não muda nada enquanto um card está sendo construído na sua pasta, e só roda os seus git hooks com *Run my git hooks* ligado.
+- **Map:** uma mudança como mapa mental, para ver o que está sendo feito, onde, e o que cada método faz. Escolha *Your uncommitted work* (os ramos são as pastas) ou qualquer card que já saiu do backlog (os ramos são as tarefas dele, pelos `[files: ...]` que cada tarefa cita, mais *Other changes*). As folhas são os arquivos alterados com as funções e classes que mudaram, cada uma com a própria docstring ou o comentário logo acima. Clique em uma para ver o que ela usa, quem a usa e o diff dela; uma sem docstring ganha o botão **Explain**: uma chamada pequena, só de leitura, à IA do papel `suggester`, só com aquele código (possíveis segredos apagados), guardada na pasta do projeto para o mesmo código nunca ser perguntado duas vezes. O seu index, as branches e os arquivos ficam como estão (usa uma cópia do index), e arquivos novos acima de 1 MB ficam fora do mapa.
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/map-dark.png">
+  <img alt="A aba Map: um card como mapa mental, o título no centro, as pastas como ramos, e os arquivos alterados com cada função alterada e o que a docstring dela diz" src="docs/images/map-light.png" width="100%">
+</picture>
+<br><sub>Map: o que está sendo feito (centro), onde (ramos), o que cada função alterada faz (folhas).</sub>
+</p>
 
 **＋ New request** (em qualquer aba): diga em palavras simples o que quer mudar. A IA do papel `suggester` monta o card (título, qual agente constrói, objetivo, 2 a 5 critérios testáveis); sem IA disponível, usa um rascunho simples por regras, então o pedido nunca se perde. Marque *start working now* e o pipeline começa (ou pega o card se já estiver rodando). Pedido vago não tem problema: o planner pergunta em vez de chutar. **Run** e **Stop** ficam no cabeçalho.
 
@@ -359,7 +368,14 @@ Um provider é só *como chamar a CLI*: `cmd`, `model_args` (`{model}` é trocad
 | OpenAI Codex (`codex exec`) | preset | **escrito pela documentação do fabricante, não rodado aqui**: confira `codex exec --help` |
 | Gemini CLI (`gemini`) | preset | **escrito pela documentação do fabricante, não rodado aqui**: confira `gemini --help` |
 | Ollama (`ollama run`) | preset, só texto | **escrito pela documentação do fabricante, não rodado aqui** |
-| OpenCode, Aider, Goose, seu script... | defina em `providers` | as flags mudam por versão: confira o `--help` da ferramenta |
+| Grok Build (`grok`), GitHub Copilot CLI (`copilot`), Cursor CLI (`cursor-agent`) | preset | **escrito pela documentação do fabricante, não rodado aqui** |
+| Modelos do Ollama no Claude Code (`ollama-claude`), LM Studio (`lmstudio`) | preset: o Claude Code conduz o modelo local, então ele também constrói | **escrito pela documentação do fabricante, não rodado aqui** |
+| MiniMax, DeepSeek, Z.ai GLM, Kimi, OpenRouter | preset: Claude Code com o endereço compatível com a Anthropic do fabricante, chave em `MINIMAX_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `MOONSHOT_API_KEY`, `OPENROUTER_API_KEY` | **escrito pela documentação do fabricante, não rodado aqui** |
+| OpenCode, Aider, Goose, Qwen Code, seu script... | defina em `providers` | as flags mudam por versão: confira o `--help` da ferramenta |
+
+**Como são encontradas.** Aperte `d` na aba AIs (ou rode `lonerchestrator intro`) e toda IA que este computador pode usar é encontrada sem perguntar nada a modelo nenhum: CLIs no seu PATH e a checagem de login delas (`claude auth status`, `codex login status`, `agy models`), servidores de modelos que respondem neste computador (Ollama na porta 11434 lista só os modelos que usam ferramentas; LM Studio na 1234) e chaves de API presentes no seu ambiente (só se estão definidas: o valor nunca é guardado nem mostrado). Só aparece o que existe de verdade, cada uma com o que falta se ainda não estiver pronta.
+
+**Claude Code com outros modelos.** Um provider com `server` (um servidor de modelos local) ou `env` roda o próprio Claude Code contra aquele endereço, então o modelo ganha os agentes, as ferramentas e as edições do Claude Code. Sua chave e seu login da Anthropic ficam em branco nessas chamadas, a chave vem do seu ambiente (`"$MINHA_CHAVE"` em `env`, nunca escrita na config), todo apelido de modelo aponta para o modelo escolhido, e os tokens contam para aquela IA com o `price` dela, não para a sua conta Claude. O seu: `"providers": {"lan": {"native": true, "server": "http://box:8080", "models": ["qwen3-coder"]}}` (um provider definido pelo repositório precisa da sua aprovação, `lonerchestrator trust`).
 
 Dá para mudar um preset do mesmo jeito (uma entrada `codex` em `providers` troca as flags dele). As outras IAs recebem as mesmas instruções dos agentes do Claude (o `agents/<papel>.md` da pasta mais o `rules.md`, colocados no prompt) e os revisores recebem o diff dentro do prompt, então funcionam mesmo se a CLI não lê arquivos. Um planner ou builder também precisa alcançar os cards, `context/` e `memory/` na pasta do projeto: `dir_args` diz como (`["--add-dir", "{dir}"]` no Codex, `["--include-directories", "{dir}"]` no Gemini CLI). Uma IA sem isso (o Antigravity não tem) pode não alcançá-los, então deixe-a nos papéis de revisor.
 

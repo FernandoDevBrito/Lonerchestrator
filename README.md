@@ -238,7 +238,7 @@ Checked by **code**, not by prompts, before CI runs:
 lonerchestrator web
 ```
 
-Everything the terminal panel does, in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Seven tabs (keys `1`-`7`), updated by themselves while the pipeline runs:
+Everything the terminal panel does, in your browser, served only to your own computer (`127.0.0.1`, with a random access token in the link it prints). Eight tabs (keys `1`-`8`), updated by themselves while the pipeline runs:
 
 <p align="center">
 <picture>
@@ -276,6 +276,15 @@ Everything the terminal panel does, in your browser, served only to your own com
 - **AIs:** which AI models are on, who does what (splitter, planner, builder, retro, suggester, qa, cross), live Claude account limits (session and week, with reset time), tokens and calls per model for this run and all runs, *Detect again* and *Refresh limits*.
 - **Settings:** "Ready to run?" with the exact fix for each item, and every setting (base branch, CI command, attempts, cards at once, builders per card, limits, ...). Saving the CI command approves it, like in the terminal.
 - **Git:** your folder as TortoiseGit shows it. Every changed file (new, modified, deleted, renamed) with a box to pick it and its diff a click away; a message and *Commit* (or *Commit & push*) commits only the files you picked, whatever else you staged stays staged. *Fetch*, *Pull* (fast-forward only: never a merge commit) and *Push* (the first push publishes the branch), how many commits are to push and to pull, and the last 30 commits with the ones *to push* marked. It changes nothing while a card is being built in your folder, and runs your git hooks only with *Run my git hooks* on.
+- **Map:** a change as a mind map, to see what is being done, where, and what each method does. Pick *Your uncommitted work* (branches are folders) or any card past the backlog (branches are its tasks, from the `[files: ...]` each task names, plus *Other changes*). The leaves are the changed files with their changed functions and classes, each with its own docstring or the comment above it. Click one for what it uses, what uses it and its diff; one with no docstring gets **Explain**: one small read-only call to the `suggester` AI with that code only (possible secrets blanked), kept in the project's folder so the same code is never asked twice. Your index, branches and files are left as they are (a copy of the index is used), and new files over 1 MB stay off the map.
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/map-dark.png">
+  <img alt="The Map tab: a card as a mind map, its title in the center, folders as branches, and the changed files with each changed function and what its docstring says" src="docs/images/map-light.png" width="100%">
+</picture>
+<br><sub>Map: what is being done (center), where (branches), what each changed function does (leaves).</sub>
+</p>
 
 **＋ New request** (any tab): say what you want changed in plain words. The AI with the `suggester` role drafts the card (title, which agent builds it, goal, 2 to 5 testable criteria); without a reachable AI a plain rule-based draft is used, so a request is never lost. Tick *start working now* and the pipeline starts (or picks the card up if it is already running). A vague request is fine: the planner asks you instead of guessing. **Run** and **Stop** are in the header.
 
@@ -361,7 +370,14 @@ A provider is just *how to call the CLI* (its tokens can be read from what it pr
 | OpenAI Codex (`codex exec`) | preset | **written from the vendor docs, not run here**: check `codex exec --help` |
 | Gemini CLI (`gemini`) | preset | **written from the vendor docs, not run here**: check `gemini --help` |
 | Ollama (`ollama run`) | preset, text only | **written from the vendor docs, not run here** |
-| OpenCode, Aider, Goose, your own script... | define it under `providers` | flags differ per version: check the tool's `--help` |
+| Grok Build (`grok`), GitHub Copilot CLI (`copilot`), Cursor CLI (`cursor-agent`) | preset | **written from the vendor docs, not run here** |
+| Ollama models in Claude Code (`ollama-claude`), LM Studio (`lmstudio`) | preset: Claude Code drives the local model, so it builds too | **written from the vendor docs, not run here** |
+| MiniMax, DeepSeek, Z.ai GLM, Kimi, OpenRouter | preset: Claude Code with the vendor's Anthropic-compatible address, key from `MINIMAX_API_KEY`, `DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `MOONSHOT_API_KEY`, `OPENROUTER_API_KEY` | **written from the vendor docs, not run here** |
+| OpenCode, Aider, Goose, Qwen Code, your own script... | define it under `providers` | flags differ per version: check the tool's `--help` |
+
+**Finding them.** Press `d` in the AIs tab (or run `lonerchestrator intro`) and every AI this computer can use is found without asking any model: CLIs on your PATH and their own sign-in check (`claude auth status`, `codex login status`, `agy models`), model servers that answer on this computer (Ollama on port 11434 lists only the models that can use tools; LM Studio on 1234), and API keys present in your environment (only that they are set: the value is never stored or shown). Only what is really there is listed, each with what is missing if it is not ready yet.
+
+**Claude Code with other models.** A provider with `server` (a local model server) or `env` runs Claude Code itself against that address, so the model gets Claude Code's agents, tools and edits. Your own Anthropic key and login are blanked for those calls, a key is read from your environment (`"$MY_KEY"` in `env`, never written in the config), every model alias points at the chosen model, and tokens are booked under that AI with its `price`, not your Claude account. Your own: `"providers": {"lan": {"native": true, "server": "http://box:8080", "models": ["qwen3-coder"]}}` (a provider a repository defines needs your approval, `lonerchestrator trust`).
 
 You can change a preset the same way (an entry named `codex` in `providers` overrides its flags). Other AIs get the same instructions as the Claude agents (the folder's `agents/<role>.md` plus `rules.md`, put in the prompt) and the reviewers get the diff written into the prompt, so they work even if the CLI cannot read files. A planner or builder must also reach the cards, `context/` and `memory/` in the project's folder: `dir_args` says how (`["--add-dir", "{dir}"]` for Codex, `["--include-directories", "{dir}"]` for Gemini CLI). An AI without it (Antigravity has none) may not reach them, so keep it to the reviewer roles.
 
